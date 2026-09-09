@@ -54,6 +54,9 @@
     (import ./overlays/repos.nix {
       inherit inputs;
     })
+    (import ./overlays/ccache.nix {
+      inherit config;
+    })
     (import ./overlays/aero.nix {
       waylandEnabled = config.services.aero.wayland.enable;
     })

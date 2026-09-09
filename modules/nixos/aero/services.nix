@@ -45,11 +45,8 @@ in
     environment.systemPackages =
       (with pkgs.aero; [
         aerofonts
-        aeroglassblur
-        aeroglide
         aerothemeplasma
         desktopcontainment
-        kcmloader
         kwin
         libplasma
         libshowdesktop
@@ -59,8 +56,6 @@ in
         seventasks
         smod
         smodglow
-        smodsnap
-        startupfeedback
         systemtray
         (lib.hiPrio plasmashell)
       ])

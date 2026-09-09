@@ -5,7 +5,6 @@
   smod,
   waylandEnabled,
 }:
-
 mkAeroDerivation {
   pname = "aero-smodglow";
   buildInputs = [

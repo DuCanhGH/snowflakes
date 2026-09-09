@@ -67,50 +67,10 @@ let
   smod = pkgs.callPackage ./kde/smod.nix {
     inherit mkAeroDerivation aero;
   };
-  mkAeroEffect = lib.extendMkDerivation {
-    constructDrv = mkAeroDerivation;
-
-    extendDrvArgs =
-      final:
-      args@{
-        pname,
-        target ? pname,
-        directory ? target,
-        hasSessionSuffix ? true,
-        ninjaFlags ? [ ],
-        installTargets ? [ ],
-        buildInputs ? [ ],
-        ...
-      }:
-      args
-      // {
-        inherit pname;
-        src = pkgs.repos.aero-kwin;
-        buildInputs = [
-          smod
-          pkgs.wayland-protocols
-        ]
-        ++ buildInputs;
-        ninjaFlags = [
-          "${target}${if (waylandEnabled || !hasSessionSuffix) then "" else "-x11"}"
-        ]
-        ++ ninjaFlags;
-        installTargets = [
-          "effects_cpp/${if waylandEnabled then "wayland" else "x11"}/${directory}/install"
-        ]
-        ++ installTargets;
-      };
-  };
 in
 {
   inherit smod libplasma plasmashell;
   aerothemeplasma = aero;
-  aeroglassblur = pkgs.callPackage ./effects/aeroglassblur.nix {
-    inherit mkAeroEffect;
-  };
-  aeroglide = pkgs.callPackage ./effects/aeroglide.nix {
-    inherit mkAeroEffect;
-  };
   aerofonts = pkgs.callPackage ./misc/aerofonts.nix { };
   desktopcontainment = pkgs.callPackage ./plasma/desktopcontainment.nix {
     inherit mkAeroDerivation aero;
@@ -147,14 +107,8 @@ in
   seventasks = pkgs.callPackage ./plasma/seventasks.nix {
     inherit mkAeroDerivation aero;
   };
-  smodglow = pkgs.callPackage ./effects/smodglow.nix {
+  smodglow = pkgs.callPackage ./kde/smodglow.nix {
     inherit mkAeroDerivation smod waylandEnabled;
-  };
-  smodsnap = pkgs.callPackage ./effects/smodsnap.nix {
-    inherit mkAeroEffect;
-  };
-  startupfeedback = pkgs.callPackage ./effects/startupfeedback.nix {
-    inherit mkAeroEffect;
   };
   systemtray = pkgs.callPackage ./plasma/systemtray.nix {
     inherit mkAeroDerivation aero;

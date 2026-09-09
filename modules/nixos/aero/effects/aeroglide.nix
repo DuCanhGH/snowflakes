@@ -1,4 +1,0 @@
-{ mkAeroEffect }:
-mkAeroEffect {
-  pname = "aeroglide";
-}
