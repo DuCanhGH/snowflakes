@@ -21,5 +21,6 @@ mkAeroDerivation {
   cmakeFlags = [
     (lib.cmakeBool "BUILD_EFFECT" false)
     (lib.cmakeBool "BUILD_EFFECTX11" false)
+    (lib.cmakeBool "BUILD_DECORATION" true)
   ];
 }

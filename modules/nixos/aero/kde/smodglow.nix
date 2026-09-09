@@ -14,5 +14,6 @@ mkAeroDerivation {
   cmakeFlags = [
     (lib.cmakeBool "BUILD_EFFECT" (waylandEnabled))
     (lib.cmakeBool "BUILD_EFFECTX11" (!waylandEnabled))
+    (lib.cmakeBool "BUILD_DECORATION" false)
   ];
 }
