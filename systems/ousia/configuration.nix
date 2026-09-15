@@ -12,15 +12,16 @@ let
   llama-cpp =
     (pkgs.llama-cpp.override {
       cudaSupport = true;
+      rocmSupport = true;
       blasSupport = true;
     }).overrideAttrs
       (oldAttrs: rec {
-        version = "10868";
+        version = "10970";
         src = pkgs.fetchFromGitHub {
           owner = "ggml-org";
           repo = "llama.cpp";
           tag = "b${version}";
-          hash = "sha256-lUVCG6QymqROZX/W0mqUTWBSZ3J7J2o7fGe4bkca1yo=";
+          hash = "sha256-MvDdikCCCPAJYF06wu4yiQO/ji61BxRGghBjLubk4E0=";
           leaveDotGit = true;
           postFetch = ''
             git -C "$out" rev-parse --short HEAD > $out/COMMIT
@@ -36,11 +37,11 @@ let
           ${oldAttrs.preConfigure or ""}
         '';
       });
-  qwen-27b-ud-iq4_xs = pkgs.homa.fetchFromHuggingFace {
+  qwen-27b-ud-q6_k = pkgs.homa.fetchFromHuggingFace {
     repo = "unsloth/Qwen3.8-27B-GGUF";
-    file = "Qwen3.8-27B-UD-IQ4_XS.gguf";
+    file = "Qwen3.8-27B-UD-Q6_K.gguf";
     version = "4ca720788d1e01f1bff70c033e0d0028fd02e502";
-    hash = "sha256-QPrEBQ6UA5fb8TCHr9UPRzShGAW/nWXvjd10g0cOYZk=";
+    hash = "sha256-ycIGgS++Sse3anKeJZKLY/KuidN/adp6ccIK7HY81DY=";
   };
   qwen-thinking-params = {
     flash-attn = "on";
@@ -60,15 +61,15 @@ let
       hash = "sha256-g+5PTyBfpRQWF3jEHfHqFBRPqg9xNRCJO2PCOV9cLVM=";
     };
     ag = true;
-    sm = "tensor";
-    ts = "1.66,1";
+    dev = "ROCm0,CUDA0";
+    ts = "2.5,1";
     jinja = true;
     ngl = 999;
     np = 4;
     kvu = true;
     spec-type = "draft-mtp,ngram-mod";
     spec-draft-n-max = 2;
-    threads = 8;
+    threads = 12;
     batch-size = 2048;
     ubatch-size = 512;
     image-min-tokens = 1024;
@@ -129,7 +130,7 @@ in
 
   networking.hostName = "ousia"; # Define your hostname.
 
-  environment.systemPackages = [ llama-cpp ];
+  environment.systemPackages = (with pkgs; [ rocmPackages.amdsmi ]) ++ [ llama-cpp ];
 
   programs.ccache.packageNames = [ "llama-cpp" ];
 
@@ -139,7 +140,7 @@ in
 
   systemd.services.llama-cpp = {
     environment = {
-      GGML_CUDA_ENABLE_UNIFIED_MEMORY = "1";
+      ROCR_VISIBLE_DEVICES = "GPU-d2181b1c3446ee4c";
     };
   };
 
@@ -154,69 +155,17 @@ in
     settings.models-max = 1;
     settings.models-preset = (pkgs.formats.ini { }).generate "models-preset.ini" {
       "Qwen/Qwen3.8-27B" = qwen-27b-params // {
-        m = qwen-27b-ud-iq4_xs;
-        c = 100096;
-        ctk = "q8_0";
-        ctv = "q8_0";
+        m = qwen-27b-ud-q6_k;
+        c = 169216;
+        ctk = "bf16";
+        ctv = "bf16";
         no-mmproj-offload = true;
       };
       "Qwen/Qwen3.8-27B-Vision" = qwen-27b-params // {
-        m = qwen-27b-ud-iq4_xs;
-        c = 65536;
-        ctk = "q8_0";
-        ctv = "q8_0";
-      };
-      "Qwen/Qwen3.8-27B-FFN@IQ3_S" = qwen-27b-params // {
-        m = pkgs.homa.fetchFromHuggingFace {
-          repo = "canhdu/Qwen3.8-27B-IQ3_S-FFN-IQ4_XS";
-          file = "Qwen3.8-27B-IQ3_S-FFN-IQ4_XS.gguf";
-          version = "409e7b548b543fc17fb7c37733ca90614f1090d7";
-          hash = "sha256-FXR5sAg2YsfJz9h1TK4kq5zBq71N75HUl1hRLJDx5AY=";
-        };
-        c = 100096;
-        ctk = "q8_0";
-        ctv = "q8_0";
-        no-mmproj-offload = true;
-      };
-      "Meta/Muse-Glimmer-30B" = {
-        m = pkgs.homa.fetchFromHuggingFace {
-          repo = "unsloth/Muse-Glimmer-30B-GGUF";
-          file = "Muse-Glimmer-30B-UD-Q4_K_XL.gguf";
-          version = "faa5b025c584459c13febfa5c59883516710ae39";
-          hash = "sha256-gr7OMEiHoxPs4IQAvAMPYGbHv/W5BrDNQDCOyKQJ/Tg=";
-        };
-        md = pkgs.homa.fetchFromHuggingFace {
-          repo = "unsloth/Muse-Glimmer-30B-GGUF";
-          file = "dflash-kquant.gguf";
-          version = "faa5b025c584459c13febfa5c59883516710ae39";
-          hash = "sha256-J9moBfopuUPPtq1IQzZ81Oqq8GvUUtjMPgCizRimd7w=";
-        };
-        mmproj = pkgs.homa.fetchFromHuggingFace {
-          repo = "unsloth/Muse-Glimmer-30B-GGUF";
-          file = "mmproj-kquant.gguf";
-          version = "faa5b025c584459c13febfa5c59883516710ae39";
-          hash = "sha256-9ItFIxb5shN1joZZREApuWGiSgf5mhq7Kp+IsG98AMY=";
-        };
-        ag = true;
-        sm = "layer";
-        ts = "12,8";
-        jinja = true;
-        ngl = 999;
+        m = qwen-27b-ud-q6_k;
         c = 131072;
-        np = 4;
-        spec-type = "draft-dflash";
-        spec-draft-n-max = 15;
-        kvu = true;
-        ctk = "q8_0";
-        ctv = "q8_0";
-        threads = 8;
-        batch-size = 512;
-        ubatch-size = 512;
-        no-mmproj-offload = true;
-        temp = 1.0;
-        top-p = 0.95;
-        top-k = 64;
-        reasoning-preserve = true;
+        ctk = "bf16";
+        ctv = "bf16";
       };
     };
   };
@@ -231,40 +180,17 @@ in
       enable = true;
       settings.provider."llama.cpp".models = {
         "Qwen/Qwen3.8-27B" = qwen-opencode-config // {
-          name = "Qwen3.8-27B (local, IQ4_XS)";
+          name = "Qwen3.8-27B (local, Q6_K)";
           limit = {
-            context = 100096;
+            context = 169216;
             output = 65536;
           };
         };
         "Qwen/Qwen3.8-27B-Vision" = qwen-opencode-config // {
-          name = "Qwen3.8-27B (local, IQ4_XS, offloaded vision)";
-          limit = {
-            context = 65536;
-            output = 32768;
-          };
-        };
-        "Qwen/Qwen3.8-27B-FFN@IQ3_S" = qwen-opencode-config // {
-          name = "Qwen3.8-27B (local, IQ4_XS, IQ3_S FFN)";
-          limit = {
-            context = 100096;
-            output = 65536;
-          };
-        };
-        "Meta/Muse-Glimmer-30B" = {
-          name = "Meta/Muse-Glimmer-30B (local)";
+          name = "Qwen3.8-27B (local, Q6_K, offloaded vision)";
           limit = {
             context = 131072;
             output = 65536;
-          };
-          modalities = {
-            input = [
-              "text"
-              "audio"
-              "image"
-              "video"
-              "pdf"
-            ];
           };
         };
       };
