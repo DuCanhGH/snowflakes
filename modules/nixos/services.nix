@@ -1,8 +1,8 @@
 # List services that you want to enable:
 {
+  pkgs,
   config,
   lib,
-  pkgs,
   ...
 }:
 {
