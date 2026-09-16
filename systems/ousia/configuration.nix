@@ -14,14 +14,15 @@ let
       cudaSupport = true;
       rocmSupport = true;
       blasSupport = true;
+      stdenv = pkgs.ccacheStdenv;
     }).overrideAttrs
       (oldAttrs: rec {
-        version = "10970";
+        version = "10991";
         src = pkgs.fetchFromGitHub {
           owner = "ggml-org";
           repo = "llama.cpp";
           tag = "b${version}";
-          hash = "sha256-MvDdikCCCPAJYF06wu4yiQO/ji61BxRGghBjLubk4E0=";
+          hash = "sha256-fr7S29Ub4NjRKVMjstmER4YsQ/Ectal/C4bgq0AOF/U=";
           leaveDotGit = true;
           postFetch = ''
             git -C "$out" rev-parse --short HEAD > $out/COMMIT
@@ -29,8 +30,18 @@ let
           '';
         };
         npmDepsHash = "sha256-2Q7XhaLAArmviOLdQsNbYTfdyDE5pW9lR26cRHEVl9k=";
+        env = {
+          CCACHE_COMPRESS = 1;
+          CCACHE_DIR = config.programs.ccache.cacheDir;
+          CCACHE_UMASK = "007";
+          CCACHE_SLOPPINESS = "random_seed";
+        };
+        nativeBuildInputs = oldAttrs.nativeBuildInputs ++ [
+          pkgs.ccache
+        ];
         cmakeFlags = (oldAttrs.cmakeFlags or [ ]) ++ [
-          "-DGGML_NATIVE=ON"
+          (lib.cmakeBool "GGML_NATIVE" true)
+          (lib.cmakeBool "GGML_CCACHE" true)
         ];
         preConfigure = ''
           export NIX_ENFORCE_NO_NATIVE=0
@@ -131,8 +142,6 @@ in
   networking.hostName = "ousia"; # Define your hostname.
 
   environment.systemPackages = (with pkgs; [ rocmPackages.amdsmi ]) ++ [ llama-cpp ];
-
-  programs.ccache.packageNames = [ "llama-cpp" ];
 
   programs.davinci.enable = true;
 
