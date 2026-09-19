@@ -41,15 +41,15 @@ let
     "Qwen/Qwen3.8-27B" = qwen-27b-params // {
       m = qwen-27b-ud-q6_k;
       c = 169216;
-      ctk = "bf16";
-      ctv = "bf16";
+      ctk = "f16";
+      ctv = "f16";
       no-mmproj-offload = true;
     };
     "Qwen/Qwen3.8-27B-Vision" = qwen-27b-params // {
       m = qwen-27b-ud-q6_k;
       c = 131072;
-      ctk = "bf16";
-      ctv = "bf16";
+      ctk = "f16";
+      ctv = "f16";
     };
   };
 in

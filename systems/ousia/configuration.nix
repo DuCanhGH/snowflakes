@@ -54,6 +54,33 @@ in
 
   services.amdgpu.enable = true;
 
+  services.lact = {
+    enable = true;
+    settings.version = 7;
+    settings.daemon = {
+      log_level = "info";
+      admin_group = "wheel";
+      disable_clocks_cleanup = false;
+    };
+    settings.apply_settings_timer = 5;
+    settings.gpus."1002:744C-1002:0E3B-0000:03:00.0" = {
+      fan_control_enabled = false;
+      pmfw_options.zero_rpm = true;
+      performance_level = "auto";
+      max_core_clock = 3100;
+      max_memory_clock = 1357;
+      voltage_offset = -50;
+    };
+    settings.gpus."10DE:2F04-10DE:205A-0000:0e:00.0" = {
+      fan_control_enabled = false;
+      power_mizer_mode = "Adaptive";
+      gpu_clock_offsets."0" = 300;
+      mem_clock_offsets."0" = 1000;
+    };
+    settings.current_profile = null;
+    settings.auto_switch_profiles = false;
+  };
+
   services.llama-cpp = {
     enable = true;
     package = llama-cpp;
@@ -84,6 +111,8 @@ in
   };
 
   hardware.bluetooth.enable = true;
+
+  hardware.amdgpu.overdrive.enable = true;
 
   hardware.nvidia.prime = {
     nvidiaBusId = "PCI:1@0:0:0";
