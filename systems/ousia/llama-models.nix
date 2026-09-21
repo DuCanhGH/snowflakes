@@ -36,6 +36,7 @@ let
     threads = 12;
     batch-size = 2048;
     ubatch-size = 512;
+    load-mode = "none";
     image-min-tokens = 1024;
   };
   models-preset = {

@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/allreduce.cu b/ggml/src/ggml-cuda/allreduce.cu
-index 39b23bed7..d7e5a5b50 100644
+index 39b23bed7..c9b805c89 100644
 --- a/ggml/src/ggml-cuda/allreduce.cu
 +++ b/ggml/src/ggml-cuda/allreduce.cu
 @@ -35,6 +35,17 @@
@@ -20,7 +20,103 @@ index 39b23bed7..d7e5a5b50 100644
  // ---------------------------------------------------------------------------
  
  // ---------------------------------------------------------------------------
-@@ -335,6 +346,27 @@ struct ggml_cuda_ar_pipeline {
+@@ -221,6 +232,50 @@ static __global__ void ggml_cuda_ar_add_kernel(
+     }
+ }
+ 
++// ---------------------------------------------------------------------------
++// Heterogeneous chunked-mode self-test kernels.
++//
++// Probe cross-runtime visibility through mapped host memory before the chunked
++// path is enabled.  publish writes a constant payload then a flag (fenced);
++// consume spins on the flag, verifies the payload, and records a result code.
++// Both are single-threaded so no cross-thread reduction is needed.
++// ---------------------------------------------------------------------------
++static __global__ void ggml_cuda_ar_selftest_publish(uint8_t * payload, int * flag, int count, int token) {
++    for (int i = 0; i < count; ++i) {
++        payload[i] = (uint8_t) token;
++    }
++    __threadfence_system();
++    *(volatile int *)flag = token;
++}
++
++static __global__ void ggml_cuda_ar_selftest_consume(const uint8_t * payload, const int * flag,
++                                                     int * result, int count, int token) {
++    int spins = 0;
++    while (*(const volatile int *)flag != token) {
++        // Bounded so a broken mapping fails fast instead of tripping the
++        // driver's kernel-launch watchdog.
++        if (++spins > 20000000) {
++            *result = -1;
++            return;
++        }
++#ifdef GGML_USE_HIP
++        __builtin_amdgcn_s_sleep(4);
++#elif __CUDA_ARCH__ >= GGML_CUDA_CC_VOLTA
++        __nanosleep(100);
++#else
++        NO_DEVICE_CODE;
++#endif
++    }
++    __threadfence_system();
++    bool ok = true;
++    for (int i = 0; i < count; ++i) {
++        if (payload[i] != (uint8_t) token) {
++            ok = false;
++        }
++    }
++    *result = ok ? 1 : 0;
++}
++
+ // ---------------------------------------------------------------------------
+ // Pipeline structure
+ // ---------------------------------------------------------------------------
+@@ -300,6 +355,44 @@ struct ggml_cuda_ar_host_mapping {
+     }
+ };
+ 
++// Heterogeneous host mapping: one physical pinned allocation, mapped
++// separately by each participating runtime.  dev[0] is the local (this build)
++// runtime's device pointer, obtained at alloc time; dev[1] is the foreign
++// runtime's pointer, obtained via its register hook.  The physical pages are
++// shared, so a kernel on either runtime can read what the other wrote.  Only
++// used in heterogeneous mode (the foreign mapping must be unregistered via the
++// foreign hook before the local free).
++struct ggml_cuda_ar_hetero_mapping {
++    uint8_t * host = nullptr;   // physical pinned handle (local runtime)
++    void *    dev[2] = {};      // [0] = local runtime, [1] = foreign runtime
++
++    cudaError_t alloc(size_t bytes) {
++        cudaError_t rc = cudaHostAlloc(reinterpret_cast<void **>(&host), bytes,
++                                       cudaHostAllocPortable | cudaHostAllocMapped);
++        if (rc != cudaSuccess) {
++            host = nullptr;
++            return rc;
++        }
++        rc = cudaHostGetDevicePointer(&dev[0], host, 0);
++        if (rc != cudaSuccess) {
++            CUDA_CHECK(cudaFreeHost(host));
++            host = nullptr;
++            dev[0] = nullptr;
++            dev[1] = nullptr;
++        }
++        return rc;
++    }
++
++    void free() {
++        if (host) {
++            CUDA_CHECK(cudaFreeHost(host));
++            host = nullptr;
++            dev[0] = nullptr;
++            dev[1] = nullptr;
++        }
++    }
++};
++
+ struct ggml_cuda_ar_pipeline {
+     int      n_devices;
+     int      devices[GGML_CUDA_MAX_DEVICES];
+@@ -335,6 +428,44 @@ struct ggml_cuda_ar_pipeline {
      // memory; CPU never reads/writes -- only the kernel and cudaMemset.
      // Use ggml_cuda_ar_arrival_ptr() to index.
      ggml_cuda_ar_host_mapping arrival;
@@ -45,24 +141,42 @@ index 39b23bed7..d7e5a5b50 100644
 +    struct ggml_context * foreign_ctx = nullptr;
 +    ggml_tensor *         foreign_nodes[7];  // t_view, t_tmp, t_a, t_b, t_c, t_s, t_add
 +    struct ggml_cgraph *  foreign_cgraph = nullptr;
++
++    // Heterogeneous chunked mode (small/decode reductions): the chunked kernel
++    // runs in each rank's own runtime, exchanging data through host buffers that
++    // are mapped by BOTH runtimes.  Enabled only if the foreign runtime can map
++    // the local pages and the self-test passes; otherwise copy_threshold is
++    // forced to 1 and every reduction uses the copy-engine path.
++    bool             chunked_enabled = false;
++    ggml_cuda_ar_hetero_mapping host_buf_hetero[GGML_CUDA_MAX_DEVICES];
++    ggml_cuda_ar_hetero_mapping arrival_hetero;
++
++    // Hooks resolved from each backend's registry.  launch_chunked[i] drives
++    // rank i's kernel in its own runtime; hetero_* are the foreign runtime's
++    // host-mapping and self-test hooks.
++    ggml_cuda_ar_launch_chunked_t  launch_chunked[GGML_CUDA_MAX_DEVICES] = {};
++    ggml_cuda_ar_register_host_t   hetero_register_host = nullptr;
++    ggml_cuda_ar_unregister_host_t hetero_unregister_host = nullptr;
++    ggml_cuda_ar_selftest_kernel_t launch_selftest = nullptr;
  };
  
  // Base pointer for the (slot, rank) per-block token block.  The kernel adds
-@@ -356,6 +388,13 @@ static uint64_t ggml_cuda_ar_env_u64(const char * name, uint64_t default_value)
-     return end != value ? (uint64_t) parsed : default_value;
+@@ -345,6 +476,14 @@ static int * ggml_cuda_ar_arrival_ptr(const ggml_cuda_ar_pipeline * p, int slot,
+     return reinterpret_cast<int *>(p->arrival.dev + offset);
  }
  
-+// Heterogeneous debugging: per-call state at the key sync points.  Gated by
-+// the log level (debug); set GGML_CUDA_AR_DEBUG=0 to silence it.
-+static const bool ggml_cuda_ar_debug = []() -> bool {
-+    const char * env = getenv("GGML_CUDA_AR_DEBUG");
-+    return env == nullptr || atoi(env) != 0;
-+}();
++// Hetero variant: arrival slot for a runtime-specific mapping (k = 0 local,
++// 1 foreign).  The kernel polls the peer's slot through its own runtime's map.
++static int * ggml_cuda_ar_arrival_ptr_hetero(const ggml_cuda_ar_pipeline * p, int slot, int rank, int k) {
++    const size_t offset = ((size_t)slot * p->n_devices + rank) *
++                          GGML_CUDA_AR_KERNEL_BLOCKS * GGML_CUDA_AR_ARRIVAL_STRIDE;
++    return reinterpret_cast<int *>(static_cast<uint8_t *>(p->arrival_hetero.dev[k]) + offset);
++}
 +
- struct ggml_cuda_ar_slot_info {
-     int slot;
-     int token;
-@@ -368,8 +407,12 @@ static ggml_cuda_ar_slot_info ggml_cuda_ar_acquire_slot(ggml_cuda_ar_pipeline *
+ static uint64_t ggml_cuda_ar_env_u64(const char * name, uint64_t default_value) {
+     const char * value = getenv(name);
+     if (value == nullptr || value[0] == '\0') {
+@@ -368,8 +507,12 @@ static ggml_cuda_ar_slot_info ggml_cuda_ar_acquire_slot(ggml_cuda_ar_pipeline *
  
      if (pool_lapped) {
          for (int i = 0; i < p->n_devices; ++i) {
@@ -77,7 +191,160 @@ index 39b23bed7..d7e5a5b50 100644
          }
      }
  
-@@ -397,7 +440,8 @@ static void ggml_cuda_ar_wait_for_compute(
+@@ -393,11 +536,161 @@ static void ggml_cuda_ar_wait_for_compute(
+     CUDA_CHECK(cudaStreamWaitEvent(p->streams[rank], ev.app));
+ }
+ 
++// ---------------------------------------------------------------------------
++// Heterogeneous chunked-mode hooks (see allreduce.cuh).  Each runs entirely in
++// the calling build's runtime: the stream, kernel, and every device pointer
++// are owned by this runtime.
++// ---------------------------------------------------------------------------
++void * ggml_cuda_ar_register_host(ggml_backend_t backend, void * host, size_t bytes) {
++    ggml_backend_cuda_context * ctx = static_cast<ggml_backend_cuda_context *>(backend->context);
++    ggml_cuda_set_device(ctx->device);
++
++    void * dev = nullptr;
++    // Portable only: the Mapped flag is CUDA-specific and has no HIP
++    // equivalent (hipHostRegister auto-maps).  If cudaHostGetDevicePointer
++    // can't translate the pointer the caller falls back to the copy engine.
++    cudaError_t rc = cudaHostRegister(host, bytes, cudaHostRegisterPortable);
++    if (rc != cudaSuccess) {
++        GGML_LOG_WARN("%s: cudaHostRegister(%zu B) failed: %s\n",
++                      __func__, bytes, cudaGetErrorString(rc));
++        (void) cudaGetLastError();
++        return nullptr;
++    }
++    rc = cudaHostGetDevicePointer(&dev, host, 0);
++    if (rc != cudaSuccess) {
++        GGML_LOG_WARN("%s: cudaHostGetDevicePointer failed: %s\n",
++                      __func__, cudaGetErrorString(rc));
++        (void) cudaGetLastError();
++        (void) cudaHostUnregister(host);
++        return nullptr;
++    }
++    return dev;
++}
++
++void ggml_cuda_ar_unregister_host(ggml_backend_t backend, void * host) {
++    GGML_UNUSED(backend);
++    if (cudaHostUnregister(host) != cudaSuccess) {
++        (void) cudaGetLastError();
++    }
++}
++
++bool ggml_cuda_ar_launch_chunked(ggml_backend_t backend, bool compute,
++        ggml_type dst_type, ggml_type wire_type,
++        const void * data, void * host_mine, const void * host_peer,
++        int * arrival_mine, int * arrival_peer, int count, int token) {
++    ggml_backend_cuda_context * ctx = static_cast<ggml_backend_cuda_context *>(backend->context);
++    ggml_cuda_set_device(ctx->device);
++    cudaStream_t stream = ctx->stream();
++
++    // Inactive shard contributes zeros.
++    if (!compute) {
++        const size_t dst_bytes = (size_t) count * ggml_type_size(dst_type);
++        CUDA_CHECK(cudaMemsetAsync(const_cast<void *>(data), 0, dst_bytes, stream));
++    }
++
++#define GGML_CUDA_AR_LAUNCH(T_dst, T_wire) \
++        ggml_cuda_ar_kernel<T_dst, T_wire><<<dim3(GGML_CUDA_AR_KERNEL_BLOCKS), dim3(256), 0, stream>>>( \
++            reinterpret_cast<const T_dst *>(data), \
++            reinterpret_cast<T_dst *>(const_cast<void *>(data)), \
++            reinterpret_cast<T_wire *>(host_mine), \
++            reinterpret_cast<const T_wire *>(host_peer), \
++            count, arrival_mine, arrival_peer, token)
++
++    bool ok = true;
++    if (dst_type == GGML_TYPE_F32 && wire_type == GGML_TYPE_F32) {
++        GGML_CUDA_AR_LAUNCH(float, float);
++    } else if (dst_type == GGML_TYPE_F16 && wire_type == GGML_TYPE_F16) {
++        GGML_CUDA_AR_LAUNCH(half, half);
++    } else if (dst_type == GGML_TYPE_BF16 && wire_type == GGML_TYPE_BF16) {
++        GGML_CUDA_AR_LAUNCH(nv_bfloat16, nv_bfloat16);
++    } else if (dst_type == GGML_TYPE_F32 && wire_type == GGML_TYPE_BF16) {
++        GGML_CUDA_AR_LAUNCH(float, nv_bfloat16);
++    } else {
++        ok = false;
++    }
++#undef GGML_CUDA_AR_LAUNCH
++
++    if (ok && cudaGetLastError() != cudaSuccess) {
++        ok = false;
++    }
++    return ok;
++}
++
++void ggml_cuda_ar_selftest_kernel(ggml_backend_t backend, int mode,
++        void * payload, int * flag, int * result, int count, int token) {
++    ggml_backend_cuda_context * ctx = static_cast<ggml_backend_cuda_context *>(backend->context);
++    ggml_cuda_set_device(ctx->device);
++    cudaStream_t stream = ctx->stream();
++    if (mode == 0) {
++        ggml_cuda_ar_selftest_publish<<<1, 1, 0, stream>>>((uint8_t *) payload, flag, count, token);
++    } else {
++        ggml_cuda_ar_selftest_consume<<<1, 1, 0, stream>>>((const uint8_t *) payload, flag, result, count, token);
++    }
++    (void) cudaGetLastError();
++}
++
++// Probe cross-runtime visibility through the dual-mapped host memory before
++// enabling the chunked path.  Exchanges a bounded payload+flag in both
++// directions (the exact mechanism the chunked kernel relies on).  Returns
++// false -- and the caller falls back to the copy-engine path -- on any
++// mismatch, timeout, or mapping failure.
++static bool ggml_cuda_ar_hetero_selftest(ggml_cuda_ar_pipeline * p, ggml_backend_t * backends) {
++    const int L = 1 - p->foreign_rank;
++    ggml_backend_t lb = backends[L];
++    ggml_backend_t fb = p->foreign_backend;
++
++    const int    count       = 1024;
++    const size_t flag_stride = GGML_CUDA_AR_ARRIVAL_STRIDE;
++    int *        result_host = reinterpret_cast<int *>(p->arrival_hetero.host + flag_stride);
++
++    // Same physical pages, per-runtime device mappings.
++    uint8_t * payload_L = (uint8_t *) p->host_buf_hetero[L].dev[0];
++    uint8_t * payload_F = (uint8_t *) p->host_buf_hetero[L].dev[1];
++    int * flag_L   = (int *) p->arrival_hetero.dev[0];
++    int * flag_F   = (int *) p->arrival_hetero.dev[1];
++    int * result_L = (int *) (static_cast<uint8_t *>(p->arrival_hetero.dev[0]) + flag_stride);
++    int * result_F = (int *) (static_cast<uint8_t *>(p->arrival_hetero.dev[1]) + flag_stride);
++
++    ggml_backend_cuda_context * lctx = static_cast<ggml_backend_cuda_context *>(lb->context);
++
++    int token = 1;
++    for (int it = 0; it < 32; ++it) {
++        // Vary the payload offset over the two slots to exercise more than one.
++        const size_t off = (it % GGML_CUDA_AR_POOL_SIZE) * p->buf_bytes;
++
++        // L -> F: L publishes, F consumes.
++        ggml_cuda_ar_selftest_kernel(lb, 0, payload_L + off, flag_L, result_L, count, token);
++        ggml_cuda_set_device(lctx->device);
++        CUDA_CHECK(cudaStreamSynchronize(lctx->stream()));
++        p->launch_selftest(fb, 1, payload_F + off, flag_F, result_F, count, token);
++        ggml_backend_synchronize(fb);
++        if (*result_host != 1) {
++            GGML_LOG_INFO("%s: self-test L->F failed (result=%d)\n", __func__, *result_host);
++            return false;
++        }
++        token++;
++
++        // F -> L: F publishes, L consumes.
++        p->launch_selftest(fb, 0, payload_F + off, flag_F, result_F, count, token);
++        ggml_backend_synchronize(fb);
++        ggml_cuda_ar_selftest_kernel(lb, 1, payload_L + off, flag_L, result_L, count, token);
++        ggml_cuda_set_device(lctx->device);
++        CUDA_CHECK(cudaStreamSynchronize(lctx->stream()));
++        if (*result_host != 1) {
++            GGML_LOG_INFO("%s: self-test F->L failed (result=%d)\n", __func__, *result_host);
++            return false;
++        }
++        token++;
++    }
++    return true;
++}
++
+ // ---------------------------------------------------------------------------
  // Init / free
  // ---------------------------------------------------------------------------
  
@@ -87,7 +354,7 @@ index 39b23bed7..d7e5a5b50 100644
  
      if (n_devices != 2) {
          GGML_LOG_DEBUG("%s: internal AllReduce only supports n_devices=2 (got %zu); "
-@@ -405,18 +449,6 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -405,18 +698,6 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
          return nullptr;
      }
  
@@ -106,7 +373,7 @@ index 39b23bed7..d7e5a5b50 100644
      auto * p = new ggml_cuda_ar_pipeline{};
      p->n_devices        = n_devices;
      p->copy_bytes       = GGML_CUDA_AR_COPY_MAX_BYTES;
-@@ -437,8 +469,56 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -437,8 +718,54 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
          p->devices[i] = devices[i];
      }
  
@@ -115,7 +382,7 @@ index 39b23bed7..d7e5a5b50 100644
 +    // name; both builds share the same backend GUID, so the name is the
 +    // only reliable discriminator.
 +    int foreign_rank = -1;
-+    for (size_t i = 0; i < n_devices; ++i) {
+     for (size_t i = 0; i < n_devices; ++i) {
 +        const char * reg_name = ggml_backend_reg_name(ggml_backend_dev_backend_reg(backends[i]->device));
 +        if (reg_name == nullptr || strcmp(reg_name, GGML_CUDA_NAME) != 0) {
 +            foreign_rank = (int) i;
@@ -133,14 +400,12 @@ index 39b23bed7..d7e5a5b50 100644
 +        p->heterogeneous   = true;
 +        p->foreign_rank    = foreign_rank;
 +        p->foreign_backend = backends[foreign_rank];
-+        // The chunked-kernel path cannot run across runtimes.
-+        p->copy_threshold  = 1;
 +    }
 +
 +    // The chunked kernel uses __nanosleep (NVIDIA, sm70+) or
 +    // __builtin_amdgcn_s_sleep (AMD).  The foreign rank of a heterogeneous
 +    // setup never runs it, and its arch cannot be queried from here.
-     for (size_t i = 0; i < n_devices; ++i) {
++    for (size_t i = 0; i < n_devices; ++i) {
 +        if (i == (size_t) foreign_rank) {
 +            continue;
 +        }
@@ -164,7 +429,77 @@ index 39b23bed7..d7e5a5b50 100644
          ggml_cuda_set_device(p->devices[i]);
  
          cudaStream_t stream = nullptr;
-@@ -524,6 +604,10 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -480,36 +807,43 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+         }
+     }
+ 
+-    // Arrival ring: cache-line padded so each GPU's int is on its own line.
+-    const size_t arrival_bytes =
+-        (size_t)GGML_CUDA_AR_POOL_SIZE * n_devices *
+-        GGML_CUDA_AR_KERNEL_BLOCKS * GGML_CUDA_AR_ARRIVAL_STRIDE;
+-    if (p->arrival.alloc(arrival_bytes) != cudaSuccess) {
+-        GGML_LOG_ERROR("%s: alloc for arrival ring failed (%zu bytes)\n",
+-                       __func__, arrival_bytes);
+-        ggml_cuda_ar_pipeline_free(p);
+-        return nullptr;
+-    }
+-    ggml_cuda_set_device(p->devices[0]);
+-    if (cudaMemset(p->arrival.dev, 0, arrival_bytes) != cudaSuccess) {
+-        GGML_LOG_ERROR("%s: cudaMemset for arrival ring failed (%zu bytes)\n",
+-                       __func__, arrival_bytes);
+-        ggml_cuda_ar_pipeline_free(p);
+-        return nullptr;
+-    }
+-
+-    // Per-device pinned staging buffers -- POOL_SIZE-deep ring so the chunked-
+-    // kernel can write the next slot's data while the peer is still reading
+-    // the previous slot's. Indexed by (slot * buf_bytes) at the call site.
++    // buf_bytes is the per-chunk staging stride; the chunked kernel indexes the
++    // host ring by (slot * buf_bytes).  Needed by both the homogeneous and the
++    // heterogeneous chunked paths.
+     p->buf_bytes = GGML_CUDA_AR_MAX_BYTES;
+-    const size_t host_buf_total = (size_t) GGML_CUDA_AR_POOL_SIZE * p->buf_bytes;
+-    for (size_t i = 0; i < n_devices; ++i) {
+-        if (p->host_buf[i].alloc(host_buf_total) != cudaSuccess) {
+-            GGML_LOG_ERROR("%s: alloc for staging failed (%zu bytes)\n",
+-                           __func__, host_buf_total);
++
++    if (!p->heterogeneous) {
++        // Arrival ring: cache-line padded so each GPU's int is on its own line.
++        const size_t arrival_bytes =
++            (size_t)GGML_CUDA_AR_POOL_SIZE * n_devices *
++            GGML_CUDA_AR_KERNEL_BLOCKS * GGML_CUDA_AR_ARRIVAL_STRIDE;
++        if (p->arrival.alloc(arrival_bytes) != cudaSuccess) {
++            GGML_LOG_ERROR("%s: alloc for arrival ring failed (%zu bytes)\n",
++                           __func__, arrival_bytes);
+             ggml_cuda_ar_pipeline_free(p);
+             return nullptr;
+         }
++        ggml_cuda_set_device(p->devices[0]);
++        if (cudaMemset(p->arrival.dev, 0, arrival_bytes) != cudaSuccess) {
++            GGML_LOG_ERROR("%s: cudaMemset for arrival ring failed (%zu bytes)\n",
++                           __func__, arrival_bytes);
++            ggml_cuda_ar_pipeline_free(p);
++            return nullptr;
++        }
++
++        // Per-device pinned staging buffers -- POOL_SIZE-deep ring so the
++        // chunked kernel can write the next slot's data while the peer is still
++        // reading the previous slot's.  Indexed by (slot * buf_bytes) at the
++        // call site.
++        const size_t host_buf_total = (size_t) GGML_CUDA_AR_POOL_SIZE * p->buf_bytes;
++        for (size_t i = 0; i < n_devices; ++i) {
++            if (p->host_buf[i].alloc(host_buf_total) != cudaSuccess) {
++                GGML_LOG_ERROR("%s: alloc for staging failed (%zu bytes)\n",
++                               __func__, host_buf_total);
++                ggml_cuda_ar_pipeline_free(p);
++                return nullptr;
++            }
++        }
+     }
+ 
+     // Copy-engine path: pinned host staging + device scratch, sized for the
+@@ -524,6 +858,10 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
              ggml_cuda_ar_pipeline_free(p);
              return nullptr;
          }
@@ -175,12 +510,119 @@ index 39b23bed7..d7e5a5b50 100644
          if (cudaMalloc(reinterpret_cast<void **>(&p->dev_tmp[i]), p->copy_bytes) != cudaSuccess) {
              GGML_LOG_ERROR("%s: cudaMalloc for copy scratch failed (%zu bytes) on device %d\n",
                             __func__, p->copy_bytes, p->devices[i]);
-@@ -532,9 +616,49 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -532,9 +870,156 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
          }
      }
  
 -    GGML_LOG_INFO("%s: initialized AllReduce pipeline: %zu GPUs, "
 +    if (p->heterogeneous) {
++        // --- Heterogeneous chunked mode ---
++        // Resolve the foreign runtime's host-mapping / self-test hooks and each
++        // rank's chunked launcher from the backend registries.  Map the dual
++        // host buffers in both runtimes, then self-test.  On any failure fall
++        // back to the copy-engine path for all sizes (copy_threshold = 1).
++        const int L = 1 - p->foreign_rank;
++        auto reg  = ggml_backend_dev_backend_reg(backends[L]->device);
++        auto freg = ggml_backend_dev_backend_reg(p->foreign_backend->device);
++        GGML_LOG_INFO("%s: reg=%p freg=%p L=%d foreign_rank=%d\n",
++                      __func__, (void *) reg, (void *) freg, L, p->foreign_rank);
++
++        p->launch_chunked[L] = (ggml_cuda_ar_launch_chunked_t)
++            ggml_backend_reg_get_proc_address(reg,  "ggml_backend_cuda_ar_launch_chunked");
++        p->launch_chunked[p->foreign_rank] = (ggml_cuda_ar_launch_chunked_t)
++            ggml_backend_reg_get_proc_address(freg, "ggml_backend_cuda_ar_launch_chunked");
++        p->hetero_register_host   = (ggml_cuda_ar_register_host_t)
++            ggml_backend_reg_get_proc_address(freg, "ggml_backend_cuda_ar_register_host");
++        p->hetero_unregister_host = (ggml_cuda_ar_unregister_host_t)
++            ggml_backend_reg_get_proc_address(freg, "ggml_backend_cuda_ar_unregister_host");
++        p->launch_selftest        = (ggml_cuda_ar_selftest_kernel_t)
++            ggml_backend_reg_get_proc_address(freg, "ggml_backend_cuda_ar_selftest_kernel");
++
++        bool chunked_ok =
++            p->launch_chunked[L] && p->launch_chunked[p->foreign_rank] &&
++            p->hetero_register_host && p->hetero_unregister_host && p->launch_selftest;
++        if (!chunked_ok) {
++            GGML_LOG_WARN("%s: chunked init: hooks unresolved "
++                          "launch_l=%p launch_f=%p reg=%p unreg=%p selftest=%p\n",
++                          __func__,
++                          (void *) p->launch_chunked[L], (void *) p->launch_chunked[p->foreign_rank],
++                          (void *) p->hetero_register_host, (void *) p->hetero_unregister_host,
++                          (void *) p->launch_selftest);
++        }
++
++        if (chunked_ok) {
++            const size_t host_buf_total = (size_t) GGML_CUDA_AR_POOL_SIZE * p->buf_bytes;
++            const size_t arrival_bytes =
++                (size_t)GGML_CUDA_AR_POOL_SIZE * n_devices *
++                GGML_CUDA_AR_KERNEL_BLOCKS * GGML_CUDA_AR_ARRIVAL_STRIDE;
++            for (size_t i = 0; i < n_devices; ++i) {
++                if (p->host_buf_hetero[i].alloc(host_buf_total) != cudaSuccess) {
++                    chunked_ok = false;
++                    GGML_LOG_WARN("%s: chunked init: host_buf[%zu] alloc failed (%zu B)\n",
++                                  __func__, i, host_buf_total);
++                }
++            }
++            if (chunked_ok && p->arrival_hetero.alloc(arrival_bytes) != cudaSuccess) {
++                chunked_ok = false;
++                GGML_LOG_WARN("%s: chunked init: arrival alloc failed (%zu B)\n", __func__, arrival_bytes);
++            }
++            if (chunked_ok) {
++                ggml_cuda_set_device(p->devices[L]);
++                CUDA_CHECK(cudaMemset(p->arrival_hetero.dev[0], 0, arrival_bytes));
++                // Map the same pages in the foreign runtime -> dev[1].
++                for (size_t i = 0; i < n_devices; ++i) {
++                    p->host_buf_hetero[i].dev[1] = p->hetero_register_host(
++                        p->foreign_backend, p->host_buf_hetero[i].host, host_buf_total);
++                    if (p->host_buf_hetero[i].dev[1] == nullptr) {
++                        chunked_ok = false;
++                        GGML_LOG_WARN("%s: chunked init: foreign register_host failed host_buf[%zu] (%zu B)\n",
++                                      __func__, i, host_buf_total);
++                    }
++                }
++                if (chunked_ok) {
++                    p->arrival_hetero.dev[1] = p->hetero_register_host(
++                        p->foreign_backend, p->arrival_hetero.host, arrival_bytes);
++                    if (p->arrival_hetero.dev[1] == nullptr) {
++                        chunked_ok = false;
++                        GGML_LOG_WARN("%s: chunked init: foreign register_host failed arrival (%zu B)\n",
++                                      __func__, arrival_bytes);
++                    }
++                }
++            }
++        }
++
++        if (chunked_ok && !ggml_cuda_ar_hetero_selftest(p, backends)) {
++            chunked_ok = false;
++        }
++
++        if (chunked_ok) {
++            // Clear any stale token/value the self-test left behind so the first
++            // real reduction starts from a zeroed arrival ring.
++            const size_t arrival_bytes =
++                (size_t)GGML_CUDA_AR_POOL_SIZE * n_devices *
++                GGML_CUDA_AR_KERNEL_BLOCKS * GGML_CUDA_AR_ARRIVAL_STRIDE;
++            ggml_cuda_set_device(p->devices[L]);
++            CUDA_CHECK(cudaMemset(p->arrival_hetero.dev[0], 0, arrival_bytes));
++            p->chunked_enabled = true;
++            GGML_LOG_INFO("%s: heterogeneous chunked mode enabled (small reductions use the chunked kernel)\n",
++                          __func__);
++        } else {
++            p->copy_threshold = 1;
++            GGML_LOG_INFO("%s: heterogeneous chunked mode unavailable; using copy-engine path for all reductions\n",
++                          __func__);
++            for (size_t i = 0; i < n_devices; ++i) {
++                if (p->host_buf_hetero[i].dev[1]) {
++                    p->hetero_unregister_host(p->foreign_backend, p->host_buf_hetero[i].host);
++                }
++                p->host_buf_hetero[i].free();
++            }
++            if (p->arrival_hetero.dev[1]) {
++                p->hetero_unregister_host(p->foreign_backend, p->arrival_hetero.host);
++            }
++            p->arrival_hetero.free();
++        }
++
++        // --- Copy-engine foreign resources (always needed) ---
 +        // Worst case per inner call (F16/BF16 dst): one wire buffer (n bytes)
 +        // plus three F32 intermediates of 2n bytes, 256-byte aligned:
 +        // 7*n + 768 <= 7*copy_bytes + 1 KB.
@@ -227,7 +669,7 @@ index 39b23bed7..d7e5a5b50 100644
  
      return p;
  }
-@@ -546,7 +670,9 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -546,7 +1031,9 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
  
      // Drain all in-flight kernels before tearing down resources.
      for (int i = 0; i < p->n_devices; ++i) {
@@ -238,7 +680,7 @@ index 39b23bed7..d7e5a5b50 100644
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaStreamSynchronize(p->streams[i]));
          }
-@@ -555,6 +681,11 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -555,6 +1042,11 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
      for (int i = 0; i < p->n_devices; ++i) {
          p->host_buf[i].free();
          p->host_large[i].free();
@@ -250,7 +692,7 @@ index 39b23bed7..d7e5a5b50 100644
          if (p->dev_tmp[i]) {
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaFree(p->dev_tmp[i]));
-@@ -581,6 +712,25 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -581,7 +1073,41 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
              CUDA_CHECK(cudaStreamDestroy(p->streams[i]));
          }
      }
@@ -274,9 +716,25 @@ index 39b23bed7..d7e5a5b50 100644
 +    }
 +
      p->arrival.free();
++
++    // Heterogeneous chunked-mode host mappings: unregister the foreign runtime
++    // before releasing the local pinned allocation.  dev[1] is only set if the
++    // foreign register hook succeeded (so the hook itself is valid).
++    for (int i = 0; i < p->n_devices; ++i) {
++        if (p->host_buf_hetero[i].host && p->hetero_unregister_host && p->host_buf_hetero[i].dev[1]) {
++            p->hetero_unregister_host(p->foreign_backend, p->host_buf_hetero[i].host);
++        }
++        p->host_buf_hetero[i].free();
++    }
++    if (p->arrival_hetero.host && p->hetero_unregister_host && p->arrival_hetero.dev[1]) {
++        p->hetero_unregister_host(p->foreign_backend, p->arrival_hetero.host);
++    }
++    p->arrival_hetero.free();
++
      delete p;
  }
-@@ -745,6 +895,402 @@ static bool ggml_cuda_ar_allreduce_copy_outer(
+ 
+@@ -745,6 +1271,364 @@ static bool ggml_cuda_ar_allreduce_copy_outer(
      return ok;
  }
  
@@ -432,18 +890,6 @@ index 39b23bed7..d7e5a5b50 100644
 +    ggml_backend_cuda_context * cuda_ctx_L =
 +        static_cast<ggml_backend_cuda_context *>(backends[L]->context);
 +    GGML_ASSERT(cuda_ctx_L->device == p->devices[L]);
-+    if (ggml_cuda_ar_debug) {
-+        const cudaError_t sticky = cudaGetLastError();
-+        GGML_LOG_DEBUG("%s: L=%d F=%d slot=%d call_count=%llu compute=[%d,%d] t_src=%d t_dst=%d "
-+                       "ne=%lld nbytes=%zu chunk_bytes=%zu copy_chunks=%zu slice_off=%zu "
-+                       "src_buf[L]=%p host_large[L]=%p streams[L]=%p dev[L]=%d sticky=%s\n",
-+                       __func__, L, F, slot, (unsigned long long) p->call_count,
-+                       (int) compute[L], (int) compute[F], (int) t_src, (int) t_dst,
-+                       (long long) ne, nbytes, chunk_bytes, copy_chunks, slice_off,
-+                       (const void *) src_buf[L], (const void *) p->host_large[L].host,
-+                       (const void *) p->streams[L], p->devices[L],
-+                       sticky == cudaSuccess ? "none" : cudaGetErrorString(sticky));
-+    }
 +    ggml_cuda_ar_wait_for_compute(p, cuda_ctx_L, L, slot);
 +    if (p->host_large_read_done_valid) {
 +        // Foreign rank finished reading host_large[L] in the previous AR.
@@ -452,27 +898,10 @@ index 39b23bed7..d7e5a5b50 100644
 +    if (!compute[L]) {
 +        CUDA_CHECK(cudaMemsetAsync(src_buf[L], 0, nbytes, p->streams[L]));
 +    }
-+    if (ggml_cuda_ar_debug) {
-+        cudaPointerAttributes pa_src, pa_dst;
-+        const cudaError_t rc_src = cudaPointerGetAttributes(&pa_src, src_buf[L]);
-+        const cudaError_t rc_dst = cudaPointerGetAttributes(&pa_dst, p->host_large[L].host);
-+        GGML_LOG_DEBUG("%s: ptr_attrs src: rc=%s type=%d dev=%d | dst: rc=%s type=%d dev=%d\n",
-+                       __func__,
-+                       rc_src == cudaSuccess ? "ok" : cudaGetErrorString(rc_src),
-+                       (int) pa_src.type, pa_src.device,
-+                       rc_dst == cudaSuccess ? "ok" : cudaGetErrorString(rc_dst),
-+                       (int) pa_dst.type, pa_dst.device);
-+    }
 +    for (size_t c = 0; c < copy_chunks; ++c) {
 +        const size_t offset = c * chunk_bytes;
 +        const size_t this_bytes = (nbytes - offset) < chunk_bytes ?
 +            (nbytes - offset) : chunk_bytes;
-+        if (ggml_cuda_ar_debug) {
-+            GGML_LOG_DEBUG("%s: d2h chunk c=%zu off=%zu nb=%zu src=%p dst=%p\n",
-+                           __func__, c, offset, this_bytes,
-+                           (const void *) (reinterpret_cast<char *>(src_buf[L]) + offset),
-+                           (const void *) (p->host_large[L].host + offset));
-+        }
 +        CUDA_CHECK(cudaMemcpyAsync(
 +            p->host_large[L].host + offset,
 +            reinterpret_cast<char *>(src_buf[L]) + offset, this_bytes,
@@ -520,15 +949,6 @@ index 39b23bed7..d7e5a5b50 100644
 +        memset(p->host_large[F].host, 0, nbytes);
 +    }
 +    ggml_backend_event_record(p->ev_f_d2h, fb);
-+    if (ggml_cuda_ar_debug) {
-+        GGML_LOG_DEBUG("%s: stage1 done, barrier: d2h_src=%p base_off=%zu host_large[F]=%p "
-+                       "tensors[F]->data=%p ev_f_d2h=%p\n",
-+                       __func__,
-+                       (const void *) (compute[F] ? (t_src == t_dst ? tensors[F]->data : t_tmp->data) : nullptr),
-+                       (t_src == t_dst && compute[F]) ? slice_off : 0,
-+                       (const void *) p->host_large[F].host,
-+                       (const void *) tensors[F]->data, (const void *) p->ev_f_d2h);
-+    }
 +
 +    // --- Barrier: both D2Hs done before either stage 2 ---
 +    ggml_backend_event_synchronize(p->ev_f_d2h);
@@ -679,26 +1099,7 @@ index 39b23bed7..d7e5a5b50 100644
  bool ggml_cuda_ar_allreduce(
          ggml_cuda_ar_pipeline * p,
          ggml_backend_t        * backends,
-@@ -788,12 +1334,30 @@ bool ggml_cuda_ar_allreduce(
-         p->copy_threshold > 0 &&
-         nbytes >= p->copy_threshold;
- 
-+    if (ggml_cuda_ar_debug) {
-+        GGML_LOG_DEBUG("%s: input_type=%d ne=%lld input_nbytes=%zu use_bf16=%d kernel_type=%d "
-+                       "nbytes=%zu use_copy_engine=%d compute_flag=[%d,%d] hetero=%d foreign_rank=%d "
-+                       "reg=[%s,%s] this_build=%s call_count=%llu\n",
-+                       __func__, (int) input_type, (long long) ne, input_nbytes, (int) use_bf16,
-+                       (int) kernel_type, nbytes, (int) use_copy_engine,
-+                       (int) compute_flag[0], (int) compute_flag[1], (int) p->heterogeneous,
-+                       p->foreign_rank,
-+                       ggml_backend_reg_name(ggml_backend_dev_backend_reg(backends[0]->device)),
-+                       ggml_backend_reg_name(ggml_backend_dev_backend_reg(backends[1]->device)),
-+                       GGML_CUDA_NAME, (unsigned long long) p->call_count);
-+    }
-+
-     // BF16 inactive-shard zeroing: when use_bf16 is on, the combined kernel
-     // (chunked kernel path) and the combined add kernel (copy_engine path)
-     // both accumulate into the F32 tensor data directly, so an inactive
+@@ -794,6 +1678,11 @@ bool ggml_cuda_ar_allreduce(
      // shard's accumulator must start at zero.
      if (use_bf16) {
          for (int i = 0; i < n; ++i) {
@@ -710,7 +1111,7 @@ index 39b23bed7..d7e5a5b50 100644
              if (!compute_flag[i]) {
                  auto * cuda_ctx = static_cast<ggml_backend_cuda_context *>(backends[i]->context);
                  GGML_ASSERT(cuda_ctx->device == p->devices[i]);
-@@ -812,6 +1376,12 @@ bool ggml_cuda_ar_allreduce(
+@@ -812,6 +1701,12 @@ bool ggml_cuda_ar_allreduce(
      if (use_copy_engine && use_bf16) {
          to_bf16_cuda_t to_bf16 = ggml_get_to_bf16_cuda(GGML_TYPE_F32);
          for (int i = 0; i < n; ++i) {
@@ -723,7 +1124,7 @@ index 39b23bed7..d7e5a5b50 100644
              auto * cuda_ctx = static_cast<ggml_backend_cuda_context *>(backends[i]->context);
              GGML_ASSERT(cuda_ctx->device == p->devices[i]);
              bf16_tmp[i].pool = &cuda_ctx->pool();
-@@ -834,7 +1404,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -834,7 +1729,13 @@ bool ggml_cuda_ar_allreduce(
          // every shard as compute.
          bool inner_compute[GGML_CUDA_MAX_DEVICES];
          for (int i = 0; i < n; ++i) {
@@ -738,7 +1139,7 @@ index 39b23bed7..d7e5a5b50 100644
          }
  
          // Dispatch into copy_impl with explicit src/dst types.  When use_bf16
-@@ -850,8 +1426,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -850,8 +1751,13 @@ bool ggml_cuda_ar_allreduce(
                  src[i] = static_cast<nv_bfloat16 *>(copy_src_ptr[i]);
                  dst[i] = static_cast<float *>(tensors[i]->data);
              }
@@ -754,7 +1155,7 @@ index 39b23bed7..d7e5a5b50 100644
          } else {
              switch (kernel_type) {
                  case GGML_TYPE_F32: {
-@@ -859,8 +1440,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -859,8 +1765,13 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<float *>(tensors[i]->data);
                      }
@@ -770,7 +1171,7 @@ index 39b23bed7..d7e5a5b50 100644
                      break;
                  }
                  case GGML_TYPE_BF16: {
-@@ -868,8 +1454,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -868,8 +1779,13 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<nv_bfloat16 *>(tensors[i]->data);
                      }
@@ -786,7 +1187,7 @@ index 39b23bed7..d7e5a5b50 100644
                      break;
                  }
                  case GGML_TYPE_F16: {
-@@ -877,8 +1468,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -877,26 +1793,84 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<half *>(tensors[i]->data);
                      }
@@ -802,16 +1203,86 @@ index 39b23bed7..d7e5a5b50 100644
                      break;
                  }
                  default:
-@@ -886,6 +1482,8 @@ bool ggml_cuda_ar_allreduce(
+                     GGML_ASSERT(false);
              }
          }
++    } else if (p->heterogeneous) {
++        // Heterogeneous chunked path: each rank's kernel runs in its own
++        // runtime (launcher hooks), exchanging data through the dual-mapped
++        // host buffers and rendezvousing on the dual-mapped arrival tokens.
++        // copy_threshold forces every larger reduction to the copy-engine
++        // branch above, so only small/decode reductions reach here
++        // (chunked_enabled is guaranteed to be set).
++        GGML_ASSERT(p->chunked_enabled);
++        const size_t max_chunk_elems = p->buf_bytes / type_size;
++        const size_t input_type_size = ggml_type_size(input_type);
++
++        for (int64_t chunk_start = 0; chunk_start < ne; chunk_start += (int64_t) max_chunk_elems) {
++            const size_t remaining_elems = (size_t) (ne - chunk_start);
++            const size_t chunk_elems = remaining_elems < max_chunk_elems ? remaining_elems : max_chunk_elems;
++
++            const auto [slot, token] = ggml_cuda_ar_acquire_slot(p);
++            const bool last_chunk = chunk_start + (int64_t) chunk_elems == ne;
++            const size_t host_off = (size_t) slot * p->buf_bytes;
++
++            // Launch both ranks back-to-back, no CPU sync between them.  Each
++            // kernel blocks on the arrival tokens until the peer has published.
++            for (int i = 0; i < n; ++i) {
++                const int peer = 1 - i;  // valid for n == 2 only
++                // k selects the runtime that owns rank i's host mapping: 0 = this
++                // build, 1 = foreign.  rank i's kernel reads/writes everything
++                // below through its own runtime's device pointers.
++                const int k = (i == p->foreign_rank) ? 1 : 0;
++
++                const void * data =
++                    static_cast<const uint8_t *>(tensors[i]->data) + chunk_start * (int64_t) input_type_size;
++                const void * host_mine = static_cast<const uint8_t *>(p->host_buf_hetero[i].dev[k]) + host_off;
++                const void * host_peer = static_cast<const uint8_t *>(p->host_buf_hetero[peer].dev[k]) + host_off;
++
++                if (!p->launch_chunked[i](backends[i], compute_flag[i], input_type,
++                                          use_bf16 ? GGML_TYPE_BF16 : input_type,
++                                          data, const_cast<void *>(host_mine), host_peer,
++                                          ggml_cuda_ar_arrival_ptr_hetero(p, slot, i, k),
++                                          ggml_cuda_ar_arrival_ptr_hetero(p, slot, peer, k),
++                                          static_cast<int>(chunk_elems), token)) {
++                    ok = false;
++                }
++
++                // Record completion for acquire_slot's pool-wraparound check.
++                if (last_chunk) {
++                    if (i == p->foreign_rank) {
++                        ggml_backend_event_record(p->ev_f_ker[slot], p->foreign_backend);
++                    } else {
++                        auto * lctx = static_cast<ggml_backend_cuda_context *>(backends[i]->context);
++                        CUDA_CHECK(cudaEventRecord(p->ev_pool[i][slot].ker, lctx->stream()));
++                    }
++                }
++            }
++        }
      } else {
-+        // Heterogeneous setups force the copy-engine path (copy_threshold=1).
-+        GGML_ASSERT(!p->heterogeneous);
-         // host_buf carries T_wire-typed data; max_chunk_elems is the count that
-         // fits in one host_buf at the wire size.
+-        // host_buf carries T_wire-typed data; max_chunk_elems is the count that
+-        // fits in one host_buf at the wire size.
++        // Homogeneous chunked kernel path (all ranks in this build's runtime).
++        // Runs entirely on the caller's compute stream: AR is a barrier here, so
++        // same-stream ordering subsumes any cross-stream event handshake the
++        // copy-engine path needs, and skips the cross-stream scheduling overhead
++        // that hurt small-tensor (tg) latency on the AR-stream variant.  Only
++        // ev.ker is recorded at end-of-AR for acquire_slot's pool-wraparound
++        // check.  host_buf carries T_wire-typed data; max_chunk_elems is the
++        // count that fits in one host_buf at the wire size.
          const size_t max_chunk_elems = p->buf_bytes / type_size;
-@@ -965,7 +1563,7 @@ bool ggml_cuda_ar_allreduce(
+         const size_t input_type_size = ggml_type_size(input_type);
+ 
+-        // Chunked kernel path runs entirely on the caller's compute stream:
+-        // since AR is a barrier here, same-stream ordering subsumes any
+-        // cross-stream event handshake that the copy-engine path needs, and
+-        // skips the cross-stream scheduling overhead that was hurting the
+-        // small-tensor (tg) latency on the AR-stream variant.  Only ev.ker is
+-        // still recorded at end-of-AR for acquire_slot's pool-wraparound check.
+         for (int64_t chunk_start = 0; chunk_start < ne; chunk_start += (int64_t) max_chunk_elems) {
+             const size_t remaining_elems = (size_t) (ne - chunk_start);
+             const size_t chunk_elems = remaining_elems < max_chunk_elems ? remaining_elems : max_chunk_elems;
+@@ -965,7 +1939,7 @@ bool ggml_cuda_ar_allreduce(
  // AllReduce is unavailable there. The dispatcher in ggml-cuda.cu treats
  // a nullptr pipeline as "init failed" and silently falls back to the meta
  // backend's generic AllReduce.
@@ -821,7 +1292,7 @@ index 39b23bed7..d7e5a5b50 100644
  }
  void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline *) {
 diff --git a/ggml/src/ggml-cuda/allreduce.cuh b/ggml/src/ggml-cuda/allreduce.cuh
-index 76205d323..6aa354739 100644
+index 76205d323..23065d1e3 100644
 --- a/ggml/src/ggml-cuda/allreduce.cuh
 +++ b/ggml/src/ggml-cuda/allreduce.cuh
 @@ -10,9 +10,12 @@ struct ggml_cuda_ar_pipeline;
@@ -838,8 +1309,57 @@ index 76205d323..6aa354739 100644
  
  // Release all resources owned by the pipeline.
  void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * pipeline);
+@@ -27,3 +30,48 @@ bool ggml_cuda_ar_allreduce(
+     ggml_backend_t        * backends,
+     ggml_tensor           ** tensors);
+ 
++// ---------------------------------------------------------------------------
++// Heterogeneous (mixed CUDA + ROCm) chunked-mode hooks.
++//
++// Every backend build compiles allreduce.cu and registers these via its
++// get_proc_address.  The coordinator (the build that drives the communicator)
++// calls its own hooks directly and drives the foreign rank through the hooks
++// resolved from the foreign backend's registry, so a runtime never touches
++// another runtime's streams, events, or kernels.  All device pointers passed
++// to a hook must be valid in that hook's own runtime.
++// ---------------------------------------------------------------------------
++
++// Register host pages with this build's runtime; return its device mapping
++// (or nullptr on failure).  Gives the foreign runtime a device pointer to
++// host memory the local runtime already allocated.
++void * ggml_cuda_ar_register_host(ggml_backend_t backend, void * host, size_t bytes);
++void   ggml_cuda_ar_unregister_host(ggml_backend_t backend, void * host);
++
++// Launch the chunked AR kernel on this backend's own compute stream.  data is
++// the in-place T_dst chunk (sendbuf == recvbuf); host_mine/host_peer are the
++// T_wire staging buffers and arrival_* the arrival slots, all mapped in this
++// runtime.  An inactive shard (!compute) is zeroed first.
++bool   ggml_cuda_ar_launch_chunked(ggml_backend_t backend,
++                                   bool compute,
++                                   ggml_type dst_type, ggml_type wire_type,
++                                   const void * data,
++                                   void * host_mine, const void * host_peer,
++                                    int * arrival_mine, int * arrival_peer,
++                                    int count, int token);
++
++// Self-test kernel on this backend's compute stream.  mode 0 publishes a
++// payload pattern + flag; mode 1 spins on the flag, verifies the payload, and
++// writes a result code (1 ok, 0 mismatch, -1 timeout).
++void   ggml_cuda_ar_selftest_kernel(ggml_backend_t backend, int mode,
++                                    void * payload, int * flag, int * result,
++                                    int count, int token);
++
++typedef void * (*ggml_cuda_ar_register_host_t)(ggml_backend_t, void *, size_t);
++typedef void   (*ggml_cuda_ar_unregister_host_t)(ggml_backend_t, void *);
++typedef bool   (*ggml_cuda_ar_launch_chunked_t)(ggml_backend_t, bool,
++                                                ggml_type, ggml_type,
++                                                const void *, void *, const void *,
++                                                int *, int *, int, int);
++typedef void   (*ggml_cuda_ar_selftest_kernel_t)(ggml_backend_t, int,
++                                                 void *, int *, int *, int, int);
++
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index a9038f1f4..464eb2664 100644
+index a9038f1f4..b6b753f28 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
 @@ -1159,7 +1159,7 @@ static void ggml_backend_cuda_comm_init_none(ggml_backend_cuda_comm_context * re
@@ -851,16 +1371,43 @@ index a9038f1f4..464eb2664 100644
      if (ret->ar_pipeline) {
          ret->try_allreduce = ggml_backend_cuda_comm_try_allreduce_internal;
          return;
-diff --git a/ggml/src/ggml-cuda/vendors/hip.h b/ggml/src/ggml-cuda/vendors/hip.h
-index 48d4eb2ce..adf54aac5 100644
---- a/ggml/src/ggml-cuda/vendors/hip.h
-+++ b/ggml/src/ggml-cuda/vendors/hip.h
-@@ -95,6 +95,8 @@
- #define cudaMemcpyDeviceToHost hipMemcpyDeviceToHost
- #define cudaMemcpyHostToDevice hipMemcpyHostToDevice
- #define cudaMemcpyKind hipMemcpyKind
-+#define cudaPointerGetAttributes hipPointerGetAttributes
-+#define cudaPointerAttributes hipPointerAttribute_t
- #define cudaMemset hipMemset
- #define cudaMemsetAsync hipMemsetAsync
- #define cudaMemGetInfo hipMemGetInfo
+@@ -5675,6 +5675,9 @@ static ggml_backend_feature * ggml_backend_cuda_get_features(ggml_backend_reg_t
+ }
+ 
+ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, const char * name) {
++    if (strncmp(name, "ggml_backend_cuda_ar_", 21) == 0) {
++        GGML_LOG_INFO("%s: ENTER reg=%p name=%s\n", __func__, (void *) reg, name);
++    }
+     GGML_UNUSED(reg);
+     if (strcmp(name, "ggml_backend_comm_init") == 0) {
+         return (void *)ggml_backend_cuda_comm_init;
+@@ -5694,6 +5697,29 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+     if (strcmp(name, "ggml_backend_get_features") == 0) {
+         return (void *)ggml_backend_cuda_get_features;
+     }
++    if (strcmp(name, "ggml_backend_cuda_ar_launch_chunked") == 0) {
++        void * r = (void *)ggml_cuda_ar_launch_chunked;
++        GGML_LOG_INFO("%s: launch_chunked -> %p\n", __func__, r);
++        return r;
++    }
++    if (strcmp(name, "ggml_backend_cuda_ar_register_host") == 0) {
++        void * r = (void *)ggml_cuda_ar_register_host;
++        GGML_LOG_INFO("%s: register_host -> %p\n", __func__, r);
++        return r;
++    }
++    if (strcmp(name, "ggml_backend_cuda_ar_unregister_host") == 0) {
++        void * r = (void *)ggml_cuda_ar_unregister_host;
++        GGML_LOG_INFO("%s: unregister_host -> %p\n", __func__, r);
++        return r;
++    }
++    if (strcmp(name, "ggml_backend_cuda_ar_selftest_kernel") == 0) {
++        void * r = (void *)ggml_cuda_ar_selftest_kernel;
++        GGML_LOG_INFO("%s: selftest_kernel -> %p\n", __func__, r);
++        return r;
++    }
++    if (strncmp(name, "ggml_backend_cuda_ar_", 21) == 0) {
++        GGML_LOG_WARN("%s: no handler for %s\n", __func__, name);
++    }
+     return nullptr;
+ }
+ 
