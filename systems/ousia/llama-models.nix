@@ -25,7 +25,8 @@ let
     };
     ag = true;
     dev = "ROCm0,CUDA0";
-    ts = "2.5,1";
+    sm = "tensor";
+    ts = "2.8,1";
     jinja = true;
     ngl = 999;
     np = 4;

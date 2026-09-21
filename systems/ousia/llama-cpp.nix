@@ -24,6 +24,9 @@
       '';
     };
     npmDepsHash = "sha256-2Q7XhaLAArmviOLdQsNbYTfdyDE5pW9lR26cRHEVl9k=";
+    # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
+    # foreign rank through its own backend API instead of raw CUDA calls.
+    patches = [ ./allreduce-hetero.patch ];
     env = {
       CCACHE_COMPRESS = 1;
       CCACHE_DIR = config.programs.ccache.cacheDir;
