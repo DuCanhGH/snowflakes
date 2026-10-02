@@ -65,9 +65,16 @@ in
 
   services.asusd.enable = true;
 
-  services.supergfxd.enable = true;
-
   services.amdgpu.enable = true;
+
+  services.cardwired = {
+    enable = true;
+    settings = {
+      battery_auto_switch = true;
+      battery_auto_switch_mode = "integrated";
+      external_display_auto_switch = true;
+    };
+  };
 
   services.llama-cpp = {
     enable = true;
