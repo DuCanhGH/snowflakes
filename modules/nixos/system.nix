@@ -18,6 +18,8 @@
       inputs.agenix.packages.x86_64-linux.default
     ]);
 
+  environment.localBinInPath = true;
+
   programs.obs-studio = {
     enable = true;
     plugins = with pkgs.obs-studio-plugins; [
@@ -51,12 +53,9 @@
 
   nixpkgs.overlays = [
     (import ./overlays/homa.nix { })
-    (import ./overlays/repos.nix {
-      inherit inputs;
-    })
-    (import ./overlays/ccache.nix {
-      inherit config;
-    })
+    (import ./overlays/repos.nix { inherit inputs; })
+    (import ./overlays/ccache.nix { inherit config; })
+    (import ./overlays/rstudio.nix { inherit inputs; })
     (import ./overlays/aero.nix {
       waylandEnabled = config.services.aero.wayland.enable;
     })

@@ -1,6 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    nixpkgs-rstudio.url = "github:NixOS/nixpkgs/d54020a6ac3211e9f4201631bdf67678818c0cdf";
     # The `follows` keyword in inputs is used for inheritance.
     # Here, `inputs.nixpkgs` of is kept consistent with the
     # `inputs.nixpkgs` of the current flake,
@@ -29,10 +30,6 @@
     nvf = {
       url = "github:notashelf/nvf";
       inputs.nixpkgs.follows = "nixpkgs";
-    };
-    secrets = {
-      url = "git+ssh://git@github.com/DuCanhGH/nix-secrets.git";
-      flake = false;
     };
     aerothemeplasma = {
       url = "git+ssh://git@github.com/rustussy/aerothemeplasma";
@@ -64,6 +61,14 @@
     };
     plasma-video-wallpaper = {
       url = "git+ssh://git@github.com/rustussy/plasma-video-wallpaper";
+      flake = false;
+    };
+    pi-extensions = {
+      url = "git+ssh://git@github.com/DuCanhGH/pi-extensions";
+      flake = false;
+    };
+    secrets = {
+      url = "git+ssh://git@github.com/DuCanhGH/nix-secrets.git";
       flake = false;
     };
   };

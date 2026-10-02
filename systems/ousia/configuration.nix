@@ -38,7 +38,13 @@ in
 
   networking.hostName = "ousia"; # Define your hostname.
 
-  environment.systemPackages = (with pkgs; [ rocmPackages.amdsmi ]) ++ [ llama-cpp ];
+  environment.systemPackages = [
+    llama-cpp
+  ]
+  ++ (with pkgs; [
+    rocmPackages.amdsmi
+    btop
+  ]);
 
   programs.davinci.enable = true;
 
@@ -97,13 +103,13 @@ in
   '';
 
   home-manager.users.ducanh = {
-    programs.opencode = with llama-models; {
+    programs.pi-coding-agent = with llama-models; {
       enable = true;
-      settings.provider."llama.cpp".models = mkOpencodeModels {
-        "Qwen/Qwen3.8-27B" = qwen-opencode-params // {
+      models.providers."llama.cpp".models = mkPiModels {
+        "Qwen/Qwen3.8-27B" = qwen-pi-params // {
           name = "Qwen3.8-27B (local, Q6_K)";
         };
-        "Qwen/Qwen3.8-27B-Vision" = qwen-opencode-params // {
+        "Qwen/Qwen3.8-27B-Vision" = qwen-pi-params // {
           name = "Qwen3.8-27B (local, Q6_K, offloaded vision)";
         };
       };

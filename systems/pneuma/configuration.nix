@@ -97,15 +97,13 @@ in
   };
 
   home-manager.users.ducanh = {
-    programs.opencode = {
+    programs.pi-coding-agent = {
       enable = true;
-      settings.provider."llama.cpp".models = {
+      models.providers."llama.cpp".models = {
         "Qwen/Qwen3.6-35B-A3B" = {
           name = "Qwen3.6-35B-A3B (local)";
-          limit = {
-            context = 131072;
-            output = 65536;
-          };
+          contextWindow = 131072;
+          maxTokens = 65536;
         };
       };
     };

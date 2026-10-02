@@ -36,7 +36,6 @@ let
     threads = 12;
     batch-size = 2048;
     ubatch-size = 512;
-    load-mode = "none";
     image-min-tokens = 1024;
   };
   models-preset = {
@@ -57,28 +56,24 @@ let
 in
 {
   inherit qwen-thinking-params models-preset;
-  qwen-opencode-params = {
-    modalities.input = [
+  qwen-pi-params = {
+    input = [
       "text"
-      "audio"
       "image"
-      "video"
-      "pdf"
     ];
-    options = {
-      reasoningEffort = "xhigh";
-      textVerbosity = "low";
-      reasoningSummary = "auto";
+    reasoning = true;
+    thinkingLevelMap = {
+      xhigh = "xhigh";
+      medium = "medium";
+      low = "low";
+      high = null;
+      minimal = null;
+      max = null;
     };
-    variants = lib.genAttrs [ "medium" "low" ] (reasoningEffort: {
-      inherit reasoningEffort;
-      textVerbosity = "low";
-      reasoningSummary = "auto";
-    });
   };
-  mkOpencodeModels =
+  mkPiModels =
     models:
-    lib.mapAttrs (
+    lib.attrsets.mapAttrsToList (
       name: params:
       let
         preset = models-preset.${name};
@@ -86,11 +81,9 @@ in
       in
       params
       // {
-        limit = {
-          context = ctx;
-          output = ctx / 2;
-        }
-        // (params.limit or { });
+        id = name;
+        contextWindow = ctx;
+        maxTokens = ctx / 2;
       }
     ) models;
 }

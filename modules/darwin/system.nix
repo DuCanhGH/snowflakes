@@ -15,6 +15,8 @@
 
   environment.shells = [ pkgs.fish ];
 
+  environment.localBinInPath = true;
+
   programs.fish.enable = true;
 
   programs.gnupg.agent = {

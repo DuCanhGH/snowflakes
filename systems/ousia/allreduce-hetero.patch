@@ -1,5 +1,5 @@
 diff --git a/ggml/src/ggml-cuda/allreduce.cu b/ggml/src/ggml-cuda/allreduce.cu
-index 39b23bed7..c9b805c89 100644
+index 39b23bed7..a2415e434 100644
 --- a/ggml/src/ggml-cuda/allreduce.cu
 +++ b/ggml/src/ggml-cuda/allreduce.cu
 @@ -35,6 +35,17 @@
@@ -13,10 +13,10 @@ index 39b23bed7..c9b805c89 100644
 +// events, or allocations, so that rank ("foreign") is driven exclusively
 +// through the generic backend API (tensor get/set async, backend events,
 +// graph compute), and all cross-rank synchronization happens on the CPU
-+// side.  Only the copy-engine path is supported in that mode; the foreign
-+// rank's transfers and its add/cast run on the foreign backend's own
-+// compute stream, which also orders them against the foreign rank's
-+// per-layer compute.
++// side.  The foreign rank's transfers, add/cast, and (when the
++// cross-runtime host-mapping self-test passes) the chunked kernel all run
++// on the foreign backend's own compute stream, which also orders them
++// against the foreign rank's per-layer compute.
  // ---------------------------------------------------------------------------
  
  // ---------------------------------------------------------------------------
@@ -510,7 +510,7 @@ index 39b23bed7..c9b805c89 100644
          if (cudaMalloc(reinterpret_cast<void **>(&p->dev_tmp[i]), p->copy_bytes) != cudaSuccess) {
              GGML_LOG_ERROR("%s: cudaMalloc for copy scratch failed (%zu bytes) on device %d\n",
                             __func__, p->copy_bytes, p->devices[i]);
-@@ -532,9 +870,156 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
+@@ -532,9 +870,154 @@ ggml_cuda_ar_pipeline * ggml_cuda_ar_pipeline_init(const int * devices, size_t n
          }
      }
  
@@ -524,11 +524,9 @@ index 39b23bed7..c9b805c89 100644
 +        const int L = 1 - p->foreign_rank;
 +        auto reg  = ggml_backend_dev_backend_reg(backends[L]->device);
 +        auto freg = ggml_backend_dev_backend_reg(p->foreign_backend->device);
-+        GGML_LOG_INFO("%s: reg=%p freg=%p L=%d foreign_rank=%d\n",
-+                      __func__, (void *) reg, (void *) freg, L, p->foreign_rank);
 +
 +        p->launch_chunked[L] = (ggml_cuda_ar_launch_chunked_t)
-+            ggml_backend_reg_get_proc_address(reg,  "ggml_backend_cuda_ar_launch_chunked");
++            ggml_backend_reg_get_proc_address(reg, "ggml_backend_cuda_ar_launch_chunked");
 +        p->launch_chunked[p->foreign_rank] = (ggml_cuda_ar_launch_chunked_t)
 +            ggml_backend_reg_get_proc_address(freg, "ggml_backend_cuda_ar_launch_chunked");
 +        p->hetero_register_host   = (ggml_cuda_ar_register_host_t)
@@ -669,7 +667,7 @@ index 39b23bed7..c9b805c89 100644
  
      return p;
  }
-@@ -546,7 +1031,9 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -546,7 +1029,9 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
  
      // Drain all in-flight kernels before tearing down resources.
      for (int i = 0; i < p->n_devices; ++i) {
@@ -680,7 +678,7 @@ index 39b23bed7..c9b805c89 100644
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaStreamSynchronize(p->streams[i]));
          }
-@@ -555,6 +1042,11 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -555,6 +1040,11 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
      for (int i = 0; i < p->n_devices; ++i) {
          p->host_buf[i].free();
          p->host_large[i].free();
@@ -692,7 +690,7 @@ index 39b23bed7..c9b805c89 100644
          if (p->dev_tmp[i]) {
              ggml_cuda_set_device(p->devices[i]);
              CUDA_CHECK(cudaFree(p->dev_tmp[i]));
-@@ -581,7 +1073,41 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
+@@ -581,7 +1071,41 @@ void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * p) {
              CUDA_CHECK(cudaStreamDestroy(p->streams[i]));
          }
      }
@@ -734,7 +732,7 @@ index 39b23bed7..c9b805c89 100644
      delete p;
  }
  
-@@ -745,6 +1271,364 @@ static bool ggml_cuda_ar_allreduce_copy_outer(
+@@ -745,6 +1269,364 @@ static bool ggml_cuda_ar_allreduce_copy_outer(
      return ok;
  }
  
@@ -1099,7 +1097,7 @@ index 39b23bed7..c9b805c89 100644
  bool ggml_cuda_ar_allreduce(
          ggml_cuda_ar_pipeline * p,
          ggml_backend_t        * backends,
-@@ -794,6 +1678,11 @@ bool ggml_cuda_ar_allreduce(
+@@ -794,6 +1676,11 @@ bool ggml_cuda_ar_allreduce(
      // shard's accumulator must start at zero.
      if (use_bf16) {
          for (int i = 0; i < n; ++i) {
@@ -1111,7 +1109,7 @@ index 39b23bed7..c9b805c89 100644
              if (!compute_flag[i]) {
                  auto * cuda_ctx = static_cast<ggml_backend_cuda_context *>(backends[i]->context);
                  GGML_ASSERT(cuda_ctx->device == p->devices[i]);
-@@ -812,6 +1701,12 @@ bool ggml_cuda_ar_allreduce(
+@@ -812,6 +1699,12 @@ bool ggml_cuda_ar_allreduce(
      if (use_copy_engine && use_bf16) {
          to_bf16_cuda_t to_bf16 = ggml_get_to_bf16_cuda(GGML_TYPE_F32);
          for (int i = 0; i < n; ++i) {
@@ -1124,7 +1122,7 @@ index 39b23bed7..c9b805c89 100644
              auto * cuda_ctx = static_cast<ggml_backend_cuda_context *>(backends[i]->context);
              GGML_ASSERT(cuda_ctx->device == p->devices[i]);
              bf16_tmp[i].pool = &cuda_ctx->pool();
-@@ -834,7 +1729,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -834,7 +1727,13 @@ bool ggml_cuda_ar_allreduce(
          // every shard as compute.
          bool inner_compute[GGML_CUDA_MAX_DEVICES];
          for (int i = 0; i < n; ++i) {
@@ -1139,7 +1137,7 @@ index 39b23bed7..c9b805c89 100644
          }
  
          // Dispatch into copy_impl with explicit src/dst types.  When use_bf16
-@@ -850,8 +1751,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -850,8 +1749,13 @@ bool ggml_cuda_ar_allreduce(
                  src[i] = static_cast<nv_bfloat16 *>(copy_src_ptr[i]);
                  dst[i] = static_cast<float *>(tensors[i]->data);
              }
@@ -1155,7 +1153,7 @@ index 39b23bed7..c9b805c89 100644
          } else {
              switch (kernel_type) {
                  case GGML_TYPE_F32: {
-@@ -859,8 +1765,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -859,8 +1763,13 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<float *>(tensors[i]->data);
                      }
@@ -1171,7 +1169,7 @@ index 39b23bed7..c9b805c89 100644
                      break;
                  }
                  case GGML_TYPE_BF16: {
-@@ -868,8 +1779,13 @@ bool ggml_cuda_ar_allreduce(
+@@ -868,8 +1777,13 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<nv_bfloat16 *>(tensors[i]->data);
                      }
@@ -1187,7 +1185,7 @@ index 39b23bed7..c9b805c89 100644
                      break;
                  }
                  case GGML_TYPE_F16: {
-@@ -877,26 +1793,84 @@ bool ggml_cuda_ar_allreduce(
+@@ -877,26 +1791,84 @@ bool ggml_cuda_ar_allreduce(
                      for (int i = 0; i < n; ++i) {
                          buf[i] = static_cast<half *>(tensors[i]->data);
                      }
@@ -1282,7 +1280,7 @@ index 39b23bed7..c9b805c89 100644
          for (int64_t chunk_start = 0; chunk_start < ne; chunk_start += (int64_t) max_chunk_elems) {
              const size_t remaining_elems = (size_t) (ne - chunk_start);
              const size_t chunk_elems = remaining_elems < max_chunk_elems ? remaining_elems : max_chunk_elems;
-@@ -965,7 +1939,7 @@ bool ggml_cuda_ar_allreduce(
+@@ -965,7 +1937,7 @@ bool ggml_cuda_ar_allreduce(
  // AllReduce is unavailable there. The dispatcher in ggml-cuda.cu treats
  // a nullptr pipeline as "init failed" and silently falls back to the meta
  // backend's generic AllReduce.
@@ -1292,7 +1290,7 @@ index 39b23bed7..c9b805c89 100644
  }
  void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline *) {
 diff --git a/ggml/src/ggml-cuda/allreduce.cuh b/ggml/src/ggml-cuda/allreduce.cuh
-index 76205d323..23065d1e3 100644
+index 76205d323..de25cce35 100644
 --- a/ggml/src/ggml-cuda/allreduce.cuh
 +++ b/ggml/src/ggml-cuda/allreduce.cuh
 @@ -10,9 +10,12 @@ struct ggml_cuda_ar_pipeline;
@@ -1309,7 +1307,7 @@ index 76205d323..23065d1e3 100644
  
  // Release all resources owned by the pipeline.
  void ggml_cuda_ar_pipeline_free(ggml_cuda_ar_pipeline * pipeline);
-@@ -27,3 +30,48 @@ bool ggml_cuda_ar_allreduce(
+@@ -27,3 +30,47 @@ bool ggml_cuda_ar_allreduce(
      ggml_backend_t        * backends,
      ggml_tensor           ** tensors);
  
@@ -1357,12 +1355,11 @@ index 76205d323..23065d1e3 100644
 +                                                int *, int *, int, int);
 +typedef void   (*ggml_cuda_ar_selftest_kernel_t)(ggml_backend_t, int,
 +                                                 void *, int *, int *, int, int);
-+
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index a9038f1f4..b6b753f28 100644
+index f9fb46c2a..069ca0c94 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -1159,7 +1159,7 @@ static void ggml_backend_cuda_comm_init_none(ggml_backend_cuda_comm_context * re
+@@ -1154,7 +1154,7 @@ static void ggml_backend_cuda_comm_init_none(ggml_backend_cuda_comm_context * re
  }
  
  static void ggml_backend_cuda_comm_init_internal(ggml_backend_cuda_comm_context * ret) {
@@ -1371,42 +1368,21 @@ index a9038f1f4..b6b753f28 100644
      if (ret->ar_pipeline) {
          ret->try_allreduce = ggml_backend_cuda_comm_try_allreduce_internal;
          return;
-@@ -5675,6 +5675,9 @@ static ggml_backend_feature * ggml_backend_cuda_get_features(ggml_backend_reg_t
- }
- 
- static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, const char * name) {
-+    if (strncmp(name, "ggml_backend_cuda_ar_", 21) == 0) {
-+        GGML_LOG_INFO("%s: ENTER reg=%p name=%s\n", __func__, (void *) reg, name);
-+    }
-     GGML_UNUSED(reg);
-     if (strcmp(name, "ggml_backend_comm_init") == 0) {
-         return (void *)ggml_backend_cuda_comm_init;
-@@ -5694,6 +5697,29 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -5807,6 +5807,18 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      if (strcmp(name, "ggml_backend_get_features") == 0) {
          return (void *)ggml_backend_cuda_get_features;
      }
 +    if (strcmp(name, "ggml_backend_cuda_ar_launch_chunked") == 0) {
-+        void * r = (void *)ggml_cuda_ar_launch_chunked;
-+        GGML_LOG_INFO("%s: launch_chunked -> %p\n", __func__, r);
-+        return r;
++        return (void *)ggml_cuda_ar_launch_chunked;
 +    }
 +    if (strcmp(name, "ggml_backend_cuda_ar_register_host") == 0) {
-+        void * r = (void *)ggml_cuda_ar_register_host;
-+        GGML_LOG_INFO("%s: register_host -> %p\n", __func__, r);
-+        return r;
++        return (void *)ggml_cuda_ar_register_host;
 +    }
 +    if (strcmp(name, "ggml_backend_cuda_ar_unregister_host") == 0) {
-+        void * r = (void *)ggml_cuda_ar_unregister_host;
-+        GGML_LOG_INFO("%s: unregister_host -> %p\n", __func__, r);
-+        return r;
++        return (void *)ggml_cuda_ar_unregister_host;
 +    }
 +    if (strcmp(name, "ggml_backend_cuda_ar_selftest_kernel") == 0) {
-+        void * r = (void *)ggml_cuda_ar_selftest_kernel;
-+        GGML_LOG_INFO("%s: selftest_kernel -> %p\n", __func__, r);
-+        return r;
-+    }
-+    if (strncmp(name, "ggml_backend_cuda_ar_", 21) == 0) {
-+        GGML_LOG_WARN("%s: no handler for %s\n", __func__, name);
++        return (void *)ggml_cuda_ar_selftest_kernel;
 +    }
      return nullptr;
  }

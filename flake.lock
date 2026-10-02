@@ -3,11 +3,11 @@
     "aero-kwin": {
       "flake": false,
       "locked": {
-        "lastModified": 1786219543,
-        "narHash": "sha256-w+C0bNbf23GIyDcAtjqfDsRXI1dTx2KqU7x+6/cG4rE=",
+        "lastModified": 1790338482,
+        "narHash": "sha256-WkK5hSYMW/ozo5Rfa1wxkOnxdhcy6ZsaOzEv/9jkiCo=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "ba5b59a4b5270a71a17768e0e7a22dc1be926833",
-        "revCount": 61,
+        "rev": "1b72d33f43177883b9d3be15a1cca1a613fa7f10",
+        "revCount": 64,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aeroshell-kwin-components"
       },
@@ -19,11 +19,11 @@
     "aero-libplasma": {
       "flake": false,
       "locked": {
-        "lastModified": 1786130294,
-        "narHash": "sha256-ci/z9YaQxoYG70FUG9fCYi2zeepGMgHWO5AumdIE8Ck=",
+        "lastModified": 1788973874,
+        "narHash": "sha256-Gh3+yizrX4K50eZRFI42swTSLeh1YDpvGSlA3kb6ICs=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "da45ff7247e42afec0fa84e32ca851bc8773378b",
-        "revCount": 18049,
+        "rev": "6ed0921cfb5f55c7c3e7ebe38a890c69db49ec7d",
+        "revCount": 18055,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aeroshell-libplasma"
       },
@@ -35,11 +35,11 @@
     "aero-smod": {
       "flake": false,
       "locked": {
-        "lastModified": 1788645314,
-        "narHash": "sha256-oGEjcAblWh5UPRNVrdVo9ZoW3nbcgBZGf/KXWO5LdaA=",
+        "lastModified": 1790551574,
+        "narHash": "sha256-m8XfKAsDafyoWjf2lbqIyau1lYImJWxPLIwWTx3cpD0=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "19b467650fa4e0cc2b1f2474993cf8f2e0d654a8",
-        "revCount": 59,
+        "rev": "f58780d56cc37dcc8a5e2a7f4b1b26cc30f79070",
+        "revCount": 66,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aeroshell-smod"
       },
@@ -51,11 +51,11 @@
     "aero-workspace": {
       "flake": false,
       "locked": {
-        "lastModified": 1781994604,
-        "narHash": "sha256-UGT+MaFwSgLzacdwZTLhaxW5qhaSVa6ZFE6F4XCaHbE=",
+        "lastModified": 1789145532,
+        "narHash": "sha256-doaIfDlt5LCgceQbjxt1f/ybHCGMKBtgwXN2VTqd5j0=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "00a39ba08f3b9441b0883f1b82fc4e7e9e6a44b7",
-        "revCount": 20,
+        "rev": "ad919f4cbf67cd0bedc5b7710b5b5738ce12d006",
+        "revCount": 22,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aeroshell-workspace"
       },
@@ -67,11 +67,11 @@
     "aerothemeplasma": {
       "flake": false,
       "locked": {
-        "lastModified": 1788924586,
-        "narHash": "sha256-EQ7y6SdQ1USVPxxwqeleHfRZGR6H7+Pi5juC1h0T01Q=",
+        "lastModified": 1790934407,
+        "narHash": "sha256-tkqpsE79pzKMmFjri5CnOwrxNEWVpOqg7Q3zfkPGO9s=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "3e1c54e39b4d10d7de67edb9c7ed247432bf1918",
-        "revCount": 746,
+        "rev": "56a78da7c43979fc9f9f5a6a289b07d509dde89a",
+        "revCount": 754,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aerothemeplasma"
       },
@@ -82,19 +82,16 @@
     },
     "agenix": {
       "inputs": {
-        "darwin": "darwin",
-        "home-manager": "home-manager",
         "nixpkgs": [
           "nixpkgs"
-        ],
-        "systems": "systems"
+        ]
       },
       "locked": {
-        "lastModified": 1770165109,
-        "narHash": "sha256-9VnK6Oqai65puVJ4WYtCTvlJeXxMzAp/69HhQuTdl/I=",
+        "lastModified": 1790734419,
+        "narHash": "sha256-n7wew722m1OTBT9DOIMxNX/NF4zfsSUABAO5eW3wikE=",
         "owner": "ryantm",
         "repo": "agenix",
-        "rev": "b027ee29d959fda4b60b57566d64c98a202e0feb",
+        "rev": "3daa710894355fa2fad8243380af373a2b4046ef",
         "type": "github"
       },
       "original": {
@@ -115,28 +112,6 @@
       "original": {
         "owner": "ipetkov",
         "repo": "crane",
-        "type": "github"
-      }
-    },
-    "darwin": {
-      "inputs": {
-        "nixpkgs": [
-          "agenix",
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1744478979,
-        "narHash": "sha256-dyN+teG9G82G+m+PX/aSAagkC+vUv0SgUw3XkPhQodQ=",
-        "owner": "lnl7",
-        "repo": "nix-darwin",
-        "rev": "43975d782b418ebf4969e9ccba82466728c2851b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "lnl7",
-        "ref": "master",
-        "repo": "nix-darwin",
         "type": "github"
       }
     },
@@ -197,36 +172,15 @@
     "home-manager": {
       "inputs": {
         "nixpkgs": [
-          "agenix",
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1745494811,
-        "narHash": "sha256-YZCh2o9Ua1n9uCvrvi5pRxtuVNml8X2a03qIFfRKpFs=",
+        "lastModified": 1790928438,
+        "narHash": "sha256-ZuJbu8VQe/Qzy7GJdZ3Xv7adRllH1o4O7nqONtkhFbA=",
         "owner": "nix-community",
         "repo": "home-manager",
-        "rev": "abfad3d2958c9e6300a883bd443512c55dfeb1be",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-community",
-        "repo": "home-manager",
-        "type": "github"
-      }
-    },
-    "home-manager_2": {
-      "inputs": {
-        "nixpkgs": [
-          "nixpkgs"
-        ]
-      },
-      "locked": {
-        "lastModified": 1788921139,
-        "narHash": "sha256-2wRuvf9UDw1SYWtBcxNmxLeAtNU1i/hc1c0AKQHdvlM=",
-        "owner": "nix-community",
-        "repo": "home-manager",
-        "rev": "a2dbe7c2c9333e8234ae8114c7f731784201d108",
+        "rev": "833540099ef43cbeb28b1e3f3c21901961edb48e",
         "type": "github"
       },
       "original": {
@@ -262,11 +216,11 @@
     },
     "mnw": {
       "locked": {
-        "lastModified": 1780772958,
-        "narHash": "sha256-VKKe8r4pwCGWZ3Yr9CPN129R4S3CKLSrlYqdYz3vKpM=",
+        "lastModified": 1784154424,
+        "narHash": "sha256-HRn4O1X2ShYtbq5Egji72/aemyc2cIQicjRZD9hBqM8=",
         "owner": "Gerg-L",
         "repo": "mnw",
-        "rev": "0871dbf63a53610c95db04439ed8ea4d6ec9c160",
+        "rev": "0151d9fa87992cbeb67c86616fb9170dcec830b6",
         "type": "github"
       },
       "original": {
@@ -298,17 +252,33 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1788881743,
-        "narHash": "sha256-2V9GZGvPfrNzxFozhI9dcqV+c3QdA8YZrvAAzqEB+dI=",
+        "lastModified": 1790822859,
+        "narHash": "sha256-69xHQhAeMAD2wDXO7T2pcOZIF9Sga2W+JkmY2a11Ops=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "d6524aaca2ff07876657ae2b323f24be4874944b",
+        "rev": "c59305bab2065cfecc4944690d9eedbb56f3a9fa",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "ref": "nixos-unstable",
         "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "nixpkgs-rstudio": {
+      "locked": {
+        "lastModified": 1790390834,
+        "narHash": "sha256-StRyS/lFHtIw/UgJk+xo+HA66mtoWeDUbkJdvf2Byn4=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "d54020a6ac3211e9f4201631bdf67678818c0cdf",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "d54020a6ac3211e9f4201631bdf67678818c0cdf",
         "type": "github"
       }
     },
@@ -321,17 +291,33 @@
         ]
       },
       "locked": {
-        "lastModified": 1788873411,
-        "narHash": "sha256-PEcPDc5QRRlzYYGQuGuh7OMMLZ1TC5hLHt3whFBRSS0=",
+        "lastModified": 1790797021,
+        "narHash": "sha256-H2vA5yUaS58Wtdp46piMbRqSQe3Qn716i/oZPYoyhp8=",
         "owner": "notashelf",
         "repo": "nvf",
-        "rev": "4771b6b78c203c090799ca6984d73c54e77228d6",
+        "rev": "2477cb0a5f394df36ddc72867c2657225d93d157",
         "type": "github"
       },
       "original": {
         "owner": "notashelf",
         "repo": "nvf",
         "type": "github"
+      }
+    },
+    "pi-extensions": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1790934040,
+        "narHash": "sha256-Q1VHLiW3eD629eMoERIg6rcXBbdCZMCLgLcVSRVbGX4=",
+        "ref": "refs/heads/main",
+        "rev": "9506af6cd5548606cf96a659c5b6b8ebe7d8c9c6",
+        "revCount": 1,
+        "type": "git",
+        "url": "ssh://git@github.com/DuCanhGH/pi-extensions"
+      },
+      "original": {
+        "type": "git",
+        "url": "ssh://git@github.com/DuCanhGH/pi-extensions"
       }
     },
     "plasma-manager": {
@@ -420,11 +406,13 @@
         "aero-workspace": "aero-workspace",
         "aerothemeplasma": "aerothemeplasma",
         "agenix": "agenix",
-        "home-manager": "home-manager_2",
+        "home-manager": "home-manager",
         "lanzaboote": "lanzaboote",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-rstudio": "nixpkgs-rstudio",
         "nvf": "nvf",
+        "pi-extensions": "pi-extensions",
         "plasma-manager": "plasma-manager",
         "plasma-video-wallpaper": "plasma-video-wallpaper",
         "plymouth-vista": "plymouth-vista",
@@ -467,21 +455,6 @@
       "original": {
         "type": "git",
         "url": "ssh://git@github.com/DuCanhGH/nix-secrets.git"
-      }
-    },
-    "systems": {
-      "locked": {
-        "lastModified": 1681028828,
-        "narHash": "sha256-Vy1rq5AaRuLzOxct8nz4T6wlgyUR7zLU309k9mBC768=",
-        "owner": "nix-systems",
-        "repo": "default",
-        "rev": "da67096a3b9bf56a91d16901293e51ba5b49a27e",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nix-systems",
-        "repo": "default",
-        "type": "github"
       }
     },
     "uac-polkit-agent": {

@@ -10,6 +10,7 @@ final: prev: {
       uac-polkit-agent
       plymouth-vista
       plasma-video-wallpaper
+      pi-extensions
       ;
     aero-icons = prev.fetchFromGitLab {
       domain = "gitgud.io";

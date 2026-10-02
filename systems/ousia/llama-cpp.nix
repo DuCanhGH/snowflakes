@@ -11,19 +11,19 @@
   stdenv = pkgs.ccacheStdenv;
 }).overrideAttrs
   (oldAttrs: rec {
-    version = "10991";
+    version = "11342";
     src = pkgs.fetchFromGitHub {
       owner = "ggml-org";
       repo = "llama.cpp";
       tag = "b${version}";
-      hash = "sha256-fr7S29Ub4NjRKVMjstmER4YsQ/Ectal/C4bgq0AOF/U=";
+      hash = "sha256-fAZMnkrj14vZKvQpC/nfuDQR1Y0w1ZFrh0pf85W7W+Y=";
       leaveDotGit = true;
       postFetch = ''
         git -C "$out" rev-parse --short HEAD > $out/COMMIT
         find "$out" -name .git -print0 | xargs -0 rm -rf
       '';
     };
-    npmDepsHash = "sha256-2Q7XhaLAArmviOLdQsNbYTfdyDE5pW9lR26cRHEVl9k=";
+    npmDepsHash = "sha256-a17M+L3nLdRnN6WMB6imPFmwqG2g8uv+gwN0XTAUrf8=";
     # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
     # foreign rank through its own backend API instead of raw CUDA calls.
     patches = [ ./allreduce-hetero.patch ];

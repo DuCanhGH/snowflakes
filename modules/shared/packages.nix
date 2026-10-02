@@ -6,13 +6,15 @@ with pkgs;
   wget
   vscode
   gh
+  uv
+  jdk21
+  nodejs
+  corepack
+  stdenv.cc
+  clang-tools
   fastfetch
-  nodejs_22
-  corepack_22
   prismlauncher
   discord
-  clang-tools
-  jdk21
   typst
   nixfmt
   nixfmt-tree
