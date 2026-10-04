@@ -1,14 +1,30 @@
+{ config, ... }:
 {
-  # Pick only one of the below networking options.
-  # networking.wireless.enable = true;  # Enables wireless support via wpa_supplicant.
-  networking.networkmanager.enable = true; # Easiest to use and most distros use this by default.
+  services = {
+    resolved.enable = true;
+    tailscale = {
+      enable = true;
+      openFirewall = true;
+    };
+  };
 
-  # Open ports in the firewall.
-  networking.firewall.allowedTCPPorts = [ 3000 ];
-  # networking.firewall.allowedUDPPorts = [ ... ];
-  networking.firewall.enable = true;
+  # Force tailscaled to use nftables (Critical for clean nftables-only systems).
+  # This avoids the "iptables-compat" translation layer issues.
+  # https://wiki.nixos.org/wiki/Tailscale#Native_nftables_Support_(Modern_Setup)
+  systemd.services.tailscaled.serviceConfig.Environment = [
+    "TS_DEBUG_FIREWALL_MODE=nftables"
+  ];
 
-  # Configure network proxy if necessary
-  # networking.proxy.default = "http://user:password@proxy:port/";
-  # networking.proxy.noProxy = "127.0.0.1,localhost,internal.domain";
+  networking = {
+    networkmanager.enable = true;
+    nftables.enable = true;
+    firewall = {
+      enable = true;
+      # Always allow traffic from your Tailscale network
+      trustedInterfaces = [ config.services.tailscale.interfaceName ];
+      # Open ports in the firewall.
+      # allowedUDPPorts = [ ... ];
+      allowedTCPPorts = [ 3000 ];
+    };
+  };
 }
