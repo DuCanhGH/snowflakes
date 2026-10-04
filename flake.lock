@@ -35,11 +35,11 @@
     "aero-smod": {
       "flake": false,
       "locked": {
-        "lastModified": 1790551574,
-        "narHash": "sha256-m8XfKAsDafyoWjf2lbqIyau1lYImJWxPLIwWTx3cpD0=",
+        "lastModified": 1791093614,
+        "narHash": "sha256-onu02n8FQs2FGhGsrTTX7DynT0RL19OprzA40eoywmg=",
         "ref": "refs/heads/Plasma/6.7",
-        "rev": "f58780d56cc37dcc8a5e2a7f4b1b26cc30f79070",
-        "revCount": 66,
+        "rev": "a05a8e9e2be5d21c3ab75866e9200669dd114cbb",
+        "revCount": 67,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/aeroshell-smod"
       },
