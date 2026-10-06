@@ -71,19 +71,5 @@ in
       max = null;
     };
   };
-  mkPiModels =
-    models:
-    lib.attrsets.mapAttrsToList (
-      name: params:
-      let
-        preset = models-preset.${name};
-        ctx = preset."fit-ctx" or preset."fitc" or preset."ctx-size" or preset.c or 0;
-      in
-      params
-      // {
-        id = name;
-        contextWindow = ctx;
-        maxTokens = ctx / 2;
-      }
-    ) models;
+  mkPiModels = pkgs.homa.mkPiModelsFromPreset models-preset;
 }
