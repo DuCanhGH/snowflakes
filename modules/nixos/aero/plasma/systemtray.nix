@@ -1,16 +1,12 @@
 {
   pkgs,
   mkAeroDerivation,
-  aero
+  aero,
 }:
 
 mkAeroDerivation {
   pname = "aero-systemtray";
-  buildInputs = with pkgs; [
-    kdePackages.qtwayland
-    kdePackages.knotifyconfig
-    kdePackages.kstatusnotifieritem
-    kdePackages.kitemmodels
-  ];
-  src = "${aero.dev}/plasma/plasmoids/systemtray_src";
+  src = aero.dev;
+  ninjaFlags = [ "io.gitgud.wackyideas.systemtray" ];
+  installTargets = "plasma/plasmoids/src/systemtray_src/install";
 }

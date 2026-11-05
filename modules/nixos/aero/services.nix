@@ -7,14 +7,13 @@
 }:
 let
   plymouth-vista = pkgs.callPackage ./misc/plymouth.nix {
-    inherit (pkgs.aero) aerofonts;
+    inherit (pkgs) aero;
   };
   cfg = config.services.aero;
 in
 {
   options.services.aero = {
     enable = lib.mkEnableOption "Enable Aero";
-    wayland.enable = lib.mkEnableOption "Enable Wayland";
     video-wallpaper.enable = lib.mkEnableOption "Enable Plasma Video Wallpaper";
     plymouth = {
       enable = lib.mkEnableOption "Enable Plymouth Vista";
@@ -27,11 +26,20 @@ in
   };
 
   config = lib.mkIf cfg.enable {
-    boot.plymouth = lib.mkIf cfg.plymouth.enable {
-      theme = "plymouth-vista";
-      themePackages = [
-        plymouth-vista
-      ];
+    boot = {
+      plymouth = lib.mkIf cfg.plymouth.enable {
+        theme = "plymouth-vista";
+        themePackages = [
+          plymouth-vista
+        ];
+        font = "${pkgs.aero.fonts}/share/fonts/truetype/segoeui.ttf";
+      };
+      initrd.systemd.contents."/etc/plymouth/fonts".source = lib.mkForce (
+        pkgs.runCommand "plymouth-fonts" { } ''
+          mkdir -p $out
+          cp ${pkgs.aero.fonts}/share/fonts/truetype/segoeui.ttf ${pkgs.aero.fonts}/share/fonts/truetype/seguisym.ttf $out/
+        ''
+      );
     };
 
     systemd.services.plymouth-quit.serviceConfig = lib.mkIf (cfg.plymouth.delay != null) {
@@ -44,8 +52,11 @@ in
 
     environment.systemPackages =
       (with pkgs.aero; [
-        aerofonts
         aerothemeplasma
+        fonts
+        icons
+        sounds
+        components
         desktopcontainment
         kwin
         libplasma
@@ -68,11 +79,11 @@ in
       ]);
 
     services.displayManager.sddm = {
-      wayland.enable = cfg.wayland.enable;
+      wayland.enable = true;
       theme = "sddm-theme-mod";
       settings = {
         General = {
-          DisplayServer = lib.mkIf cfg.wayland.enable "wayland";
+          DisplayServer = "wayland";
         };
         Theme = {
           CursorTheme = "aero-drop";
@@ -80,11 +91,10 @@ in
       };
     };
 
-    services.displayManager.defaultSession =
-      if cfg.wayland.enable then "aerothemeplasma" else "aerothemeplasmax11";
+    services.displayManager.defaultSession = "aerothemeplasma";
 
     services.displayManager.sessionPackages = with pkgs; [
-      aero.login-sessions
+      aero.aerothemeplasma
     ];
 
     systemd.packages = with pkgs; [
@@ -93,6 +103,7 @@ in
 
     fonts.packages = with pkgs; [
       corefonts
+      aero.fonts
       vista-fonts
     ];
   };

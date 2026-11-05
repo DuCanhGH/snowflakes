@@ -57,8 +57,8 @@
           "minimizeallEnabled" = true;
           "scaleEnabled" = false;
           "slideEnabled" = false;
+          "slidingnotificationsEnabled" = false;
           "slidingpopupsEnabled" = false;
-          "smodglow-x11Enabled" = true;
           "smodglowEnabled" = true;
           "smodpeekeffectEnabled" = true;
           "smodpeekscriptEnabled" = true;

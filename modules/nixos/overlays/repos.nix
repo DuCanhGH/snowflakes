@@ -16,8 +16,8 @@ final: prev: {
       domain = "gitgud.io";
       owner = "aeroshell";
       repo = "atp/aerothemeplasma-icons";
-      rev = "867f54bd5cc233ccf94b5bf4e04958b39241a8a8";
-      hash = "sha256-z4CO3zQT8AfgpDe9i+e800rf9k7UnD70mU+2wdNoxjg=";
+      rev = "0100536bb0fb4b731b6cf776f3bc6dc5d3c74bfc";
+      hash = "sha256-5tB52/IYB4oz3Zn3TPcSWLfdCLvYLRqxshbGzZyPHzE=";
     };
     aero-sounds = prev.fetchFromGitLab {
       domain = "gitgud.io";

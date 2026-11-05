@@ -4,7 +4,7 @@
   lib,
   stdenvNoCC,
   makeFontsConf,
-  aerofonts,
+  aero,
 }:
 stdenvNoCC.mkDerivation {
   name = "plymouth-vista";
@@ -12,7 +12,7 @@ stdenvNoCC.mkDerivation {
   nativeBuildInputs = [ pkgs.imagemagick ];
   env = {
     FONTCONFIG_FILE = makeFontsConf {
-      fontDirectories = [ aerofonts ];
+      fontDirectories = [ aero.fonts ];
     };
   };
   postPatch = "patchShebangs ./compile.sh ./pv_conf.sh ./gen_blur.sh";
@@ -32,7 +32,7 @@ stdenvNoCC.mkDerivation {
     ./pv_conf.sh -s StartingText -v "Starting Linux"
     ./pv_conf.sh -s ResumingText -v "Resuming Linux"
     ./pv_conf.sh -s NoGuiResumeText -v "Resuming Linux..."
-    ./pv_conf.sh -s CopyrightText -v "© Microslop Copyschlop"
+    ./pv_conf.sh -s CopyrightText -v "🄯 GNU GPL-2.0"
 
     XDG_CACHE_HOME="$(mktemp -d)" ./gen_blur.sh
 

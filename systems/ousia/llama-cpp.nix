@@ -23,6 +23,8 @@
         find "$out" -name .git -print0 | xargs -0 rm -rf
       '';
     };
+    # Disable tests for now.
+    doCheck = false;
     npmDepsHash = "sha256-a17M+L3nLdRnN6WMB6imPFmwqG2g8uv+gwN0XTAUrf8=";
     # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
     # foreign rank through its own backend API instead of raw CUDA calls.

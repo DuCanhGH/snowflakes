@@ -1,5 +1,4 @@
 {
-  waylandEnabled ? false,
   pkgs,
   lib,
   ccacheStdenv,
@@ -16,8 +15,6 @@ let
     "-DPlasma_DIR=${libplasma.dev}/lib/cmake/Plasma"
     "-DPlasmaQuick_DIR=${libplasma.dev}/lib/cmake/PlasmaQuick"
     "-DKPLUGINFACTORY_INCLUDE=${pkgs.kdePackages.kcoreaddons.dev}/include/KF6/KCoreAddons"
-    (lib.cmakeBool "KWIN_BUILD_WAYLAND" waylandEnabled)
-    (lib.cmakeBool "INSTALL_X11_COMPONENTS" (!waylandEnabled))
   ]);
   # Source: https://github.com/Rotlug/aerothemeplasma-nixos/blob/8452aa903e76f9c20a62024c6d6f2c4be6933c8d/default.nix#L23-L70
   mkAeroDerivation = lib.extendMkDerivation {
@@ -44,16 +41,21 @@ let
           kdePackages.wrapQtAppsHook
           kdePackages.kcoreaddons.dev
         ];
-        defaultBuild = (
-          with pkgs;
-          (
-            [
-              kdePackages.qtbase
-              kdePackages.qttools
-            ]
-            ++ (if waylandEnabled then [ kdePackages.kwin ] else [ kdePackages.kwin-x11 ])
-          )
-        );
+        defaultBuild = with pkgs.kdePackages; [
+          kwin
+          krunner
+          ksvg
+          knotifyconfig
+          kstatusnotifieritem
+          kitemmodels
+          plasma-workspace
+          plasma-activities
+          plasma-activities-stats
+          plasma5support
+          qtbase
+          qttools
+          qtwayland
+        ];
       in
       args
       // {
@@ -63,7 +65,9 @@ let
         buildInputs = defaultBuild ++ buildInputs;
       };
   };
-  aero = pkgs.callPackage ./plasma/aerothemeplasma.nix { };
+  aero = pkgs.callPackage ./plasma/aerothemeplasma.nix {
+    inherit mkAeroDerivation plasmashell;
+  };
   smod = pkgs.callPackage ./kde/smod.nix {
     inherit mkAeroDerivation aero;
   };
@@ -71,9 +75,15 @@ in
 {
   inherit smod libplasma plasmashell;
   aerothemeplasma = aero;
-  aerofonts = pkgs.callPackage ./misc/aerofonts.nix { };
+  components = pkgs.callPackage ./kde/aero.nix {
+    inherit mkAeroDerivation;
+  };
   desktopcontainment = pkgs.callPackage ./plasma/desktopcontainment.nix {
     inherit mkAeroDerivation aero;
+  };
+  fonts = pkgs.callPackage ./misc/fonts.nix { };
+  icons = pkgs.callPackage ./misc/icons.nix {
+    inherit mkAeroDerivation;
   };
   kcmloader = pkgs.callPackage ./misc/kcmloader.nix {
     inherit mkAeroDerivation aero;
@@ -86,14 +96,6 @@ in
   };
   libtaskmanager = pkgs.callPackage ./kde/libtaskmanager.nix {
     inherit mkAeroDerivation;
-  };
-  login-sessions = pkgs.callPackage ./plasma/login-sessions.nix {
-    inherit
-      mkAeroDerivation
-      aero
-      plasmashell
-      waylandEnabled
-      ;
   };
   notifications = pkgs.callPackage ./plasma/notifications.nix {
     inherit mkAeroDerivation aero;
@@ -108,7 +110,10 @@ in
     inherit mkAeroDerivation aero;
   };
   smodglow = pkgs.callPackage ./kde/smodglow.nix {
-    inherit mkAeroDerivation smod waylandEnabled;
+    inherit mkAeroDerivation smod;
+  };
+  sounds = pkgs.callPackage ./misc/sounds.nix {
+    inherit mkAeroDerivation;
   };
   systemtray = pkgs.callPackage ./plasma/systemtray.nix {
     inherit mkAeroDerivation aero;

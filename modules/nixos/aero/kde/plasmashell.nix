@@ -10,16 +10,14 @@ pkgs.kdePackages.plasma-workspace.overrideAttrs (oldAttrs: {
   outputs = [ "out" ];
   ninjaFlags = [
     "plasmashell"
-    "startplasma-x11"
     "startplasma-wayland"
     "klookandfeel"
     "kworkspace"
-    "krdb"
     "ksplashqml"
   ];
   installPhase = ''
     runHook preInstall
-    ninja shell/install startkde/install libklookandfeel/install libkworkspace/install kcms/krdb/install ksplash/install
+    ninja shell/install startkde/install libklookandfeel/install libkworkspace/install ksplash/install
     runHook postInstall
   '';
   passthru.providedSessions = [ ];

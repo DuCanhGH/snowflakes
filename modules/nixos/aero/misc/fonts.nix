@@ -3,9 +3,8 @@
   lib,
   stdenvNoCC,
 }:
-
 stdenvNoCC.mkDerivation {
-  name = "aerofonts";
+  name = "aero-fonts";
   src = ../fonts;
   dontBuild = true;
   installPhase = ''
@@ -15,7 +14,7 @@ stdenvNoCC.mkDerivation {
     runHook postInstall
   '';
   meta = {
-    description = "Segoe UI fonts";
+    description = "Aero Fonts";
     platforms = lib.platforms.linux;
   };
 }

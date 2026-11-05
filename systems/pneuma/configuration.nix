@@ -50,7 +50,6 @@ in
   environment.systemPackages = [ llama-cpp ];
 
   services.aero = {
-    wayland.enable = true;
     plymouth.delay = 5;
     video-wallpaper.enable = true;
   };
