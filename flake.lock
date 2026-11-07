@@ -266,6 +266,22 @@
         "type": "github"
       }
     },
+    "nixpkgs-opencode": {
+      "locked": {
+        "lastModified": 1793268293,
+        "narHash": "sha256-eXXkxD29MbVLxQEe3n1sISGGMtNyzEMvMYSzGrNDoF8=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "3e662c7cafceb2a65f612e1da9dd39f82eb39ad0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "3e662c7cafceb2a65f612e1da9dd39f82eb39ad0",
+        "type": "github"
+      }
+    },
     "nixpkgs-rstudio": {
       "locked": {
         "lastModified": 1790390834,
@@ -410,6 +426,7 @@
         "lanzaboote": "lanzaboote",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
+        "nixpkgs-opencode": "nixpkgs-opencode",
         "nixpkgs-rstudio": "nixpkgs-rstudio",
         "nvf": "nvf",
         "pi-extensions": "pi-extensions",

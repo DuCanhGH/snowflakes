@@ -38,6 +38,40 @@ let
     ubatch-size = 512;
     image-min-tokens = 1024;
   };
+  qwen-flash-next = pkgs.homa.fetchHuggingFaceModel {
+    repo = "unsloth/Qwen3.8-Flash-Next-GGUF";
+    version = "d96201194f103c906994f283f504209dc8d2a10c";
+    scripts = {
+      set-split = {
+        file = "engram/set_split.py";
+        hash = "sha256-6zvpdh6D7U4y8gBoC2LoXIrV3/xlRFL3eooRtdoaRcU=";
+      };
+    };
+    files = { scripts, ... }: [
+      {
+        file = "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf";
+        hash = "sha256-nVZEs3H/rJIUJ8gCHMckLauOO6N9e0jR55/jdw+/mRU=";
+      }
+      {
+        file = "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00002-of-00004.gguf";
+        hash = "sha256-qsr/O9uQMsLDvkKBZ5MICXNfZdPPsgTroH2F5CHn3fQ=";
+      }
+      {
+        file = "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00003-of-00004.gguf";
+        hash = "sha256-748U55CrRxs2PxRtXoZk7vuvA+V3bzF6H7lqK8dwewc=";
+      }
+      {
+        file = "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf";
+        hash = "sha256-Xei12/iUCazDlGjeyv1KSpWxPCnYihSwNWEHiXgp7DY=";
+      }
+      {
+        file = "engram-Q8_0.gguf";
+        sourceFile = "engram/Qwen3.8-Flash-Next-engram-Q8_0.gguf_file";
+        hash = "sha256-Q3W5JaOr+zhZ9rY02vqrM0PZ4s35s0UiU75GWhI2FCY=";
+        postFetch = "${pkgs.python3}/bin/python3 ${scripts.set-split} $downloadedFile 4 4";
+      }
+    ];
+  };
   models-preset = {
     "Qwen/Qwen3.8-27B" = qwen-27b-params // {
       m = qwen-27b-ud-q6_k;
@@ -51,6 +85,34 @@ let
       c = 131072;
       ctk = "f16";
       ctv = "f16";
+    };
+    "Qwen/Qwen3.8-Flash-Next" = qwen-thinking-params // {
+      m = "${qwen-flash-next}/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf";
+      # The model is ~85 GiB: ~56 GiB of main weights plus a 28.8 GiB
+      # per-layer n-gram table. VRAM (24 GiB + 12 GiB) is only 36 GiB,
+      # so ~23 layers of routed experts (~22 GiB) have to stay in system
+      # RAM to leave room for KV cache.
+      n-cpu-moe = 23;
+      # Keep the 28.8 GiB n-gram table out of VRAM and read only the rows
+      # each token needs, straight from the read-only mmap'd shard.
+      override-tensor = "per_layer_token_embd=CPU";
+      load-mode = "none";
+      lazy-mode = "on";
+      c = 131072;
+      ctk = "q8_0";
+      ctv = "q8_0";
+      dev = "ROCm0,CUDA0";
+      sm = "tensor";
+      ts = "2.2,1";
+      ngl = 999;
+      batch-size = 2048;
+      ubatch-size = 512;
+      threads = 12;
+      np = 1;
+      fit = "off";
+      jinja = true;
+      ag = true;
+      image-min-tokens = 1024;
     };
   };
 in

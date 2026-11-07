@@ -1356,10 +1356,10 @@ index 76205d323..de25cce35 100644
 +typedef void   (*ggml_cuda_ar_selftest_kernel_t)(ggml_backend_t, int,
 +                                                 void *, int *, int *, int, int);
 diff --git a/ggml/src/ggml-cuda/ggml-cuda.cu b/ggml/src/ggml-cuda/ggml-cuda.cu
-index f9fb46c2a..069ca0c94 100644
+index 9c467ce95..30bd7d760 100644
 --- a/ggml/src/ggml-cuda/ggml-cuda.cu
 +++ b/ggml/src/ggml-cuda/ggml-cuda.cu
-@@ -1154,7 +1154,7 @@ static void ggml_backend_cuda_comm_init_none(ggml_backend_cuda_comm_context * re
+@@ -1315,7 +1315,7 @@ static void ggml_backend_cuda_comm_init_none(ggml_backend_cuda_comm_context * re
  }
  
  static void ggml_backend_cuda_comm_init_internal(ggml_backend_cuda_comm_context * ret) {
@@ -1368,7 +1368,7 @@ index f9fb46c2a..069ca0c94 100644
      if (ret->ar_pipeline) {
          ret->try_allreduce = ggml_backend_cuda_comm_try_allreduce_internal;
          return;
-@@ -5807,6 +5807,18 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
+@@ -6556,6 +6556,18 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
      if (strcmp(name, "ggml_backend_get_features") == 0) {
          return (void *)ggml_backend_cuda_get_features;
      }

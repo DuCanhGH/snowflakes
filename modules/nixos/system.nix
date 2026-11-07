@@ -15,6 +15,7 @@
       nurl
       unzip
       qbittorrent
+      wl-clipboard
       inputs.agenix.packages.x86_64-linux.default
     ]);
 

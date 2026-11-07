@@ -11,12 +11,12 @@
   stdenv = pkgs.ccacheStdenv;
 }).overrideAttrs
   (oldAttrs: rec {
-    version = "11342";
+    version = "12180";
     src = pkgs.fetchFromGitHub {
       owner = "ggml-org";
       repo = "llama.cpp";
       tag = "b${version}";
-      hash = "sha256-fAZMnkrj14vZKvQpC/nfuDQR1Y0w1ZFrh0pf85W7W+Y=";
+      hash = "sha256-bR7sP8MN3UAqPhEakqClz6UVqo2Qdz4pMcv9aHQoWRw=";
       leaveDotGit = true;
       postFetch = ''
         git -C "$out" rev-parse --short HEAD > $out/COMMIT
@@ -25,7 +25,7 @@
     };
     # Disable tests for now.
     doCheck = false;
-    npmDepsHash = "sha256-a17M+L3nLdRnN6WMB6imPFmwqG2g8uv+gwN0XTAUrf8=";
+    npmDepsHash = "sha256-XLtEZsSFdk+2SyfXzBp8HQ2e27PQPpDCn1YjePU1/9w=";
     # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
     # foreign rank through its own backend API instead of raw CUDA calls.
     patches = [ ./allreduce-hetero.patch ];
@@ -41,6 +41,8 @@
     cmakeFlags = (oldAttrs.cmakeFlags or [ ]) ++ [
       (lib.cmakeBool "GGML_NATIVE" true)
       (lib.cmakeBool "GGML_CCACHE" true)
+      (lib.cmakeBool "GGML_BACKEND_DL" true)
+      (lib.cmakeBool "BUILD_SHARED_LIBS" true)
     ];
     preConfigure = ''
       export NIX_ENFORCE_NO_NATIVE=0

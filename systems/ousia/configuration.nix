@@ -2,6 +2,7 @@
 # your system. Help is available in the configuration.nix(5) man page, on
 # https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
 {
+  inputs,
   pkgs,
   config,
   lib,
@@ -28,6 +29,11 @@ in
       enable = true;
       pkiBundle = "/var/lib/sbctl";
     };
+    # We keep ~20 GiB of Qwen3.8 Flash Next's MoE experts in anonymous RAM.
+    # Swapping them causes a significant drop in performance; setting
+    # swappiness low makes the kernel prefer dropping the lazily-read
+    # n-gram table way more.
+    kernel.sysctl."vm.swappiness" = 10;
   };
 
   fileSystems = {
@@ -103,6 +109,10 @@ in
   '';
 
   home-manager.users.ducanh = {
+    programs.opencode = {
+      enable = true;
+      package = inputs.nixpkgs-opencode.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
+    };
     programs.pi-coding-agent = with llama-models; {
       enable = true;
       models.providers."llama.cpp".models = mkPiModels {
@@ -111,6 +121,9 @@ in
         };
         "Qwen/Qwen3.8-27B-Vision" = qwen-pi-params // {
           name = "Qwen3.8-27B (local, Q6_K, offloaded vision)";
+        };
+        "Qwen/Qwen3.8-Flash-Next" = qwen-pi-params // {
+          name = "Qwen3.8-Flash-Next (local, IQ3_XXS, no vision)";
         };
       };
     };
