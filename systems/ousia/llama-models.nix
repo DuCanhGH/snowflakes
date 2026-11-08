@@ -102,8 +102,13 @@ let
       ctk = "q8_0";
       ctv = "q8_0";
       dev = "ROCm0,CUDA0";
-      sm = "tensor";
-      ts = "2.2,1";
+      # Layer split beats tensor split with MoE cache.
+      sm = "layer";
+      ts = "4.3,1";
+      # 768 MiB is the most that still fits next to the full 131k Q8_0
+      # context. Misses stay on the CPU rather than being uploaded over PCIe.
+      moe-cache-mib = 768;
+      moe-cache-cpu-share = 0.8;
       ngl = 999;
       batch-size = 2048;
       ubatch-size = 512;

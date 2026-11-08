@@ -11,12 +11,12 @@
   stdenv = pkgs.ccacheStdenv;
 }).overrideAttrs
   (oldAttrs: rec {
-    version = "12180";
+    version = "12194";
     src = pkgs.fetchFromGitHub {
       owner = "ggml-org";
       repo = "llama.cpp";
       tag = "b${version}";
-      hash = "sha256-bR7sP8MN3UAqPhEakqClz6UVqo2Qdz4pMcv9aHQoWRw=";
+      hash = "sha256-8BAl8bQ99gldqX7RJfYM6VFtWfeeLrvV9SXAk2ECYwA=";
       leaveDotGit = true;
       postFetch = ''
         git -C "$out" rev-parse --short HEAD > $out/COMMIT
