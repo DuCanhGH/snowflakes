@@ -95,7 +95,7 @@ let
       n-cpu-moe = 23;
       # Keep the 28.8 GiB n-gram table out of VRAM and read only the rows
       # each token needs, straight from the read-only mmap'd shard.
-      override-tensor = "per_layer_token_embd=CPU";
+      override-tensor = "per_layer_token_embd\\.weight=CPU,output\\.weight=ROCm0";
       load-mode = "none";
       lazy-mode = "on";
       c = 131072;
@@ -104,10 +104,8 @@ let
       dev = "ROCm0,CUDA0";
       # Layer split beats tensor split with MoE cache.
       sm = "layer";
-      ts = "4.3,1";
-      # 768 MiB is the most that still fits next to the full 131k Q8_0
-      # context. Misses stay on the CPU rather than being uploaded over PCIe.
-      moe-cache-mib = 768;
+      ts = "3.85,1";
+      moe-cache-mib = 1408;
       moe-cache-cpu-share = 0.8;
       ngl = 999;
       batch-size = 2048;
