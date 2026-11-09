@@ -39,13 +39,17 @@ in
           }
           // args
         );
-      fetched-scripts = lib.mapAttrs (
-        _: script:
-        hfetch {
-          inherit (script) file hash;
-          postFetch = script.postFetch or postFetch;
-        }
-      ) scripts;
+      fetched-scripts =
+        let
+          scriptAttrs = if builtins.isFunction scripts then scripts fetched-scripts else scripts;
+        in
+        lib.mapAttrs (
+          _: script:
+          hfetch {
+            inherit (script) file hash;
+            postFetch = script.postFetch or postFetch;
+          }
+        ) scriptAttrs;
       model-files =
         if builtins.isFunction files then
           files {
@@ -60,7 +64,12 @@ in
         entry:
         let
           is-local-source =
-            entry ? sourceFile && (lib.isDerivation entry.sourceFile || builtins.isPath entry.sourceFile);
+            entry ? sourceFile
+            && (
+              lib.isDerivation entry.sourceFile
+              || lib.types.pathInStore.check entry.sourceFile
+              || builtins.isPath entry.sourceFile
+            );
         in
         {
           name = entry.file;

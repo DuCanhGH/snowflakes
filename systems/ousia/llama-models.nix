@@ -41,10 +41,15 @@ let
   qwen-flash-next = pkgs.homa.fetchHuggingFaceModel {
     repo = "unsloth/Qwen3.8-Flash-Next-GGUF";
     version = "d96201194f103c906994f283f504209dc8d2a10c";
-    scripts = {
+    scripts = final-scripts: {
       set-split = {
         file = "engram/set_split.py";
         hash = "sha256-6zvpdh6D7U4y8gBoC2LoXIrV3/xlRFL3eooRtdoaRcU=";
+      };
+      engram-Q8_0 = {
+        file = "engram/Qwen3.8-Flash-Next-engram-Q8_0.gguf_file";
+        hash = "sha256-Q3W5JaOr+zhZ9rY02vqrM0PZ4s35s0UiU75GWhI2FCY=";
+        postFetch = "${pkgs.python3}/bin/python3 ${final-scripts.set-split} $downloadedFile 4 4";
       };
     };
     files = { scripts, ... }: [
@@ -65,12 +70,44 @@ let
         hash = "sha256-Xei12/iUCazDlGjeyv1KSpWxPCnYihSwNWEHiXgp7DY=";
       }
       {
-        file = "engram-Q8_0.gguf";
-        sourceFile = "engram/Qwen3.8-Flash-Next-engram-Q8_0.gguf_file";
-        hash = "sha256-Q3W5JaOr+zhZ9rY02vqrM0PZ4s35s0UiU75GWhI2FCY=";
-        postFetch = "${pkgs.python3}/bin/python3 ${scripts.set-split} $downloadedFile 4 4";
+        file = "engram/engram-Q8_0.gguf";
+        sourceFile = scripts.engram-Q8_0;
+      }
+      {
+        file = "engram/engram-Q8_0-2-2.gguf";
+        sourceFile = pkgs.runCommand "engram-Q8_0-2-2" { } ''
+          cp ${scripts.engram-Q8_0} $out
+          chmod u+w $out
+          ${pkgs.python3}/bin/python3 ${scripts.set-split} $out 2 2
+        '';
       }
     ];
+  };
+  qwen-flash-next-gsq-rco = pkgs.homa.fetchHuggingFaceModel {
+    repo = "ISTA-DASLab/Qwen3.8-Flash-Next-GSQ-RCO-GGUF";
+    version = "ed59f92082b1e93c0e96d60a8b11aab089b52f09";
+    files = [
+      {
+        file = "IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf";
+        hash = "sha256-IZ6pKZAN+p7wkfOqRz/bpodLZfyzZSbX2FGsnpWFbRU=";
+      }
+      {
+        file = "IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00002-of-00002.gguf";
+        sourceFile = "${qwen-flash-next}/engram/engram-Q8_0-2-2.gguf";
+      }
+    ];
+  };
+  qwen-flash-next-params = qwen-thinking-params // {
+    dev = "ROCm0,CUDA0";
+    ngl = 999;
+    batch-size = 2048;
+    ubatch-size = 512;
+    threads = 12;
+    np = 1;
+    fit = "off";
+    jinja = true;
+    ag = true;
+    image-min-tokens = 1024;
   };
   models-preset = {
     "Qwen/Qwen3.8-27B" = qwen-27b-params // {
@@ -86,7 +123,7 @@ let
       ctk = "f16";
       ctv = "f16";
     };
-    "Qwen/Qwen3.8-Flash-Next" = qwen-thinking-params // {
+    "Qwen/Qwen3.8-Flash-Next" = qwen-flash-next-params // {
       m = "${qwen-flash-next}/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf";
       # The model is ~85 GiB: ~56 GiB of main weights plus a 28.8 GiB
       # per-layer n-gram table. VRAM (24 GiB + 12 GiB) is only 36 GiB,
@@ -101,21 +138,27 @@ let
       c = 131072;
       ctk = "q8_0";
       ctv = "q8_0";
-      dev = "ROCm0,CUDA0";
       # Layer split beats tensor split with MoE cache.
       sm = "layer";
       ts = "3.85,1";
       moe-cache-mib = 1408;
       moe-cache-cpu-share = 0.8;
-      ngl = 999;
-      batch-size = 2048;
-      ubatch-size = 512;
-      threads = 12;
-      np = 1;
-      fit = "off";
-      jinja = true;
-      ag = true;
-      image-min-tokens = 1024;
+    };
+    "Qwen/Qwen3.8-Flash-Next-GSQ-RCO" = qwen-flash-next-params // {
+      m = "${qwen-flash-next-gsq-rco}/IQ3_XXS/Qwen3.8-Flash-Next-GSQ-RCO-IQ3_XXS-00001-of-00002.gguf";
+      # ~44 GiB of main weights (the 54.4 GiB n-gram table is the second shard),
+      # so fewer expert layers have to stay in system RAM than UD-IQ3_XXS.
+      n-cpu-moe = 20;
+      override-tensor = "per_layer_token_embd\\.weight=CPU,output\\.weight=ROCm0";
+      load-mode = "none";
+      lazy-mode = "on";
+      c = 131072;
+      ctk = "q8_0";
+      ctv = "q8_0";
+      sm = "layer";
+      ts = "3.45,1";
+      moe-cache-mib = 1280;
+      moe-cache-cpu-share = 0.8;
     };
   };
 in
