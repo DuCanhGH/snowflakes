@@ -28,7 +28,12 @@
     npmDepsHash = "sha256-XLtEZsSFdk+2SyfXzBp8HQ2e27PQPpDCn1YjePU1/9w=";
     # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
     # foreign rank through its own backend API instead of raw CUDA calls.
-    patches = [ ./allreduce-hetero.patch ];
+    # The second patch lets a shared MTP head borrow token_embd/output from the
+    # target model through ctx_other.
+    patches = [
+      ./allreduce-hetero.patch
+      ./mtp-shared-embd.patch
+    ];
     env = {
       CCACHE_COMPRESS = 1;
       CCACHE_DIR = config.programs.ccache.cacheDir;

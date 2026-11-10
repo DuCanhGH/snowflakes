@@ -125,6 +125,15 @@ in
         "Qwen/Qwen3.8-Flash-Next" = qwen-pi-params // {
           name = "Qwen3.8-Flash-Next (local, IQ3_XXS, no vision)";
         };
+        "Qwen/Qwen3.8-Flash-Next-GSQ-RCO" = qwen-pi-params // {
+          name = "Qwen3.8-Flash-Next (local, IQ3_XXS, GSQ-RCO, no vision)";
+        };
+        "Qwen/Qwen3.8-Flash-Next-Coder" = qwen-pi-params // {
+          name = "Qwen3.8-Flash-Next (local, Coder)";
+        };
+        "Qwen/Qwen3.8-Flash-Next-Coder-Vision" = qwen-pi-params // {
+          name = "Qwen3.8-Flash-Next (local, Coder, offloaded vision)";
+        };
       };
     };
   };

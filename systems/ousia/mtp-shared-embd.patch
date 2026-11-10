@@ -1,0 +1,116 @@
+--- a/common/speculative.cpp
++++ b/common/speculative.cpp
+@@ -1613,7 +1613,12 @@
+             }
+         }
+ 
+-        is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt;
++        // only the gemma4 assistant shares the target KV; other architectures (qwen4exp)
++        // set ctx_other to borrow tensors (a shared MTP head) but keep their own draft KV
++        char arch_dft[64] = {};
++        is_mem_shared = llama_get_ctx_other(ctx_dft) == ctx_tgt &&
++                llama_model_meta_val_str(llama_get_model(ctx_dft), "general.architecture", arch_dft, sizeof(arch_dft)) >= 0 &&
++                std::strcmp(arch_dft, "gemma4-assistant") == 0;
+         chain_heads   = n_mtp_layers > 1 && !is_mem_shared;
+ 
+         llama_set_embeddings_nextn(ctx_tgt, true, /*masked*/ is_mem_shared);
+--- a/src/models/qwen4exp.cpp
++++ b/src/models/qwen4exp.cpp
+@@ -182,7 +182,8 @@
+     const int trunk_flags = nf.trunk;
+     const int mtp_flags   = nf.mtp;
+ 
+-    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, 0);
++    // a shared MTP head leaves the embeddings and the LM head to the target model
++    tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, TENSOR_NOT_REQUIRED);
+ 
+     // there is no output_norm: the final hyper-connection mixer carries it
+     // the gammas load as [n_embd, hc] so the grouped norm multiplies them without a graph reshape
+@@ -191,7 +192,7 @@
+     hc_head_up   = create_tensor(tn(LLM_TENSOR_HC_HEAD_UP,   "weight"), { hc_lr, hc_dim }, trunk_flags);
+ 
+     output = create_tensor(tn(LLM_TENSOR_OUTPUT, "weight"), { n_embd, n_vocab }, TENSOR_NOT_REQUIRED);
+-    if (output == NULL) {
++    if (output == NULL && tok_embd != NULL) {
+         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), { n_embd, n_vocab }, TENSOR_DUPLICATED);
+     }
+ 
+@@ -600,13 +601,23 @@
+     ggml_set_input(inp->h);
+     ggml_set_name(inp->h, "mtp_h_input");
+ 
+-    ggml_tensor * tok_embd;
++    ggml_tensor * tok_embd = model.tok_embd;
++    if (tok_embd == nullptr) {
++        // shared MTP head: the embeddings come from the target model
++        GGML_ASSERT(cparams.ctx_other != nullptr);
++        const auto * model_other = llama_get_model(cparams.ctx_other);
++
++        GGML_ASSERT(model_other->tok_embd != nullptr && "qwen4exp MTP requires token embeddings (own or from the target model)");
++        tok_embd = model_other->tok_embd;
++    }
++
++    ggml_tensor * tok_embd_rows;
+     if (ubatch.token) {
+-        tok_embd = ggml_get_rows(ctx0, model.tok_embd, inp->tokens);
++        tok_embd_rows = ggml_get_rows(ctx0, tok_embd, inp->tokens);
+     } else {
+-        tok_embd = inp->embd;
++        tok_embd_rows = inp->embd;
+     }
+-    cb(tok_embd, "mtp_tok_embd", il);
++    cb(tok_embd_rows, "mtp_tok_embd", il);
+ 
+     ggml_tensor * h = inp->h;
+ 
+@@ -619,7 +630,9 @@
+     ggml_build_forward_expand(gf, inp_hyb->get_recr()->s_copy);
+ 
+     llm_graph_input_kpool * inp_kpool = nullptr;
+-    if (mctx_hyb->get_idx() && hparams.indexer_kpool > 0) {
++    // the draft block itself may have no QSA layer (a shared head can be trained without an indexer),
++    // in which case no op reads the pool inputs and they would never be allocated
++    if (mctx_hyb->get_idx() && hparams.indexer_kpool > 0 && hparams.dsv4_compress_ratios[il] > 0) {
+         GGML_ASSERT(mctx_hyb->get_idx()->get_n_kv() == mctx_hyb->get_attn()->get_n_kv() &&
+                 "the indexer cache must track the attention cache cell for cell");
+         inp_kpool = build_inp_kpool(mctx_hyb);
+@@ -631,7 +644,7 @@
+     ggml_tensor * h_norm = build_norm(ggml_reshape_3d(ctx0, h, n_embd, hc, n_tokens), layer.nextn.hnorm, nullptr, LLM_NORM_RMS, il);
+     cb(h_norm, "mtp_hnorm", il);
+ 
+-    ggml_tensor * e_norm = build_norm(tok_embd, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
++    ggml_tensor * e_norm = build_norm(tok_embd_rows, layer.nextn.enorm, nullptr, LLM_NORM_RMS, il);
+     e_norm = ggml_repeat_4d(ctx0, ggml_reshape_3d(ctx0, e_norm, n_embd, 1, n_tokens), n_embd, hc, n_tokens, 1);
+     cb(e_norm, "mtp_enorm", il);
+ 
+@@ -662,7 +675,18 @@
+     cb(cur, "result_norm", -1);
+     res->t_embd = cur;
+ 
+-    cur = build_lora_mm(model.output, cur, model.output_s);
++    ggml_tensor * output   = model.output;
++    ggml_tensor * output_s = model.output_s;
++    if (output == nullptr) {
++        // shared MTP head: the LM head comes from the target model
++        GGML_ASSERT(cparams.ctx_other != nullptr);
++        const auto * model_other = llama_get_model(cparams.ctx_other);
++
++        GGML_ASSERT(model_other->output != nullptr && "qwen4exp MTP requires an output projection (own or from the target model)");
++        output   = model_other->output;
++        output_s = model_other->output_s;
++    }
++    cur = build_lora_mm(output, cur, output_s);
+     cb(cur, "result_output", -1);
+     res->t_logits = cur;
+ }
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -253,7 +253,7 @@
+         cparams.ctx_other = params.ctx_other;
+     }
+ 
+-    if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH) {
++    if (model.arch == LLM_ARCH_EAGLE3 || model.arch == LLM_ARCH_DFLASH || model.arch == LLM_ARCH_QWEN4EXP) {
+         if (model.tok_embd == nullptr || model.output == nullptr) {
+             if (params.ctx_other == nullptr) {
+                 throw std::runtime_error(model.arch_name() + " requires ctx_other to be set (this warning is normal during memory fitting)");
