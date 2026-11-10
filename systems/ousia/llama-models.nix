@@ -67,16 +67,12 @@ let
       }
       {
         file = "UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00004-of-00004.gguf";
-        hash = "sha256-Xei12/iUCazDlGjeyv1KSpWxPCnYihSwNWEHiXgp7DY=";
-      }
-      {
-        file = "engram/engram-Q8_0.gguf";
         sourceFile = scripts.engram-Q8_0;
       }
       {
         file = "engram/engram-Q8_0-2-2.gguf";
         sourceFile = pkgs.runCommand "engram-Q8_0-2-2" { } ''
-          cp ${scripts.engram-Q8_0} $out
+          cp --reflink=always ${scripts.engram-Q8_0} $out
           chmod u+w $out
           ${pkgs.python3}/bin/python3 ${scripts.set-split} $out 2 2
         '';
