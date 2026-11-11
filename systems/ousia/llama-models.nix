@@ -10,19 +10,22 @@ let
     repeat-penalty = 1.0;
     reasoning-preserve = true;
   };
-  qwen-27b-ud-q6_k = pkgs.homa.fetchFromHuggingFace {
+  qwen-27b = pkgs.homa.fetchHuggingFaceModel {
     repo = "unsloth/Qwen3.8-27B-GGUF";
-    file = "Qwen3.8-27B-UD-Q6_K.gguf";
-    version = "4ca720788d1e01f1bff70c033e0d0028fd02e502";
-    hash = "sha256-ycIGgS++Sse3anKeJZKLY/KuidN/adp6ccIK7HY81DY=";
+    version = "ce331efc48d5722b4b8041f72793e530eae18d9b";
+    files = [
+      {
+        file = "Qwen3.8-27B-UD-Q6_K.gguf";
+        hash = "sha256-bKxV+HYBXW1LlLFlbSP3n0JKybWDZSrt8GM9uhFldqg=";
+      }
+      {
+        file = "mmproj-BF16.gguf";
+        hash = "sha256-g+5PTyBfpRQWF3jEHfHqFBRPqg9xNRCJO2PCOV9cLVM=";
+      }
+    ];
   };
   qwen-27b-params = qwen-thinking-params // {
-    mmproj = pkgs.homa.fetchFromHuggingFace {
-      repo = "unsloth/Qwen3.8-27B-GGUF";
-      file = "mmproj-BF16.gguf";
-      version = "4ca720788d1e01f1bff70c033e0d0028fd02e502";
-      hash = "sha256-g+5PTyBfpRQWF3jEHfHqFBRPqg9xNRCJO2PCOV9cLVM=";
-    };
+    mmproj = "${qwen-27b}/mmproj-BF16.gguf";
     ag = true;
     dev = "ROCm0,CUDA0";
     sm = "tensor";
@@ -150,14 +153,14 @@ let
   };
   models-preset = {
     "Qwen/Qwen3.8-27B" = qwen-27b-params // {
-      m = qwen-27b-ud-q6_k;
+      m = "${qwen-27b}/Qwen3.8-27B-UD-Q6_K.gguf";
       c = 169216;
       ctk = "f16";
       ctv = "f16";
       no-mmproj-offload = true;
     };
     "Qwen/Qwen3.8-27B-Vision" = qwen-27b-params // {
-      m = qwen-27b-ud-q6_k;
+      m = "${qwen-27b}/Qwen3.8-27B-UD-Q6_K.gguf";
       c = 131072;
       ctk = "f16";
       ctv = "f16";

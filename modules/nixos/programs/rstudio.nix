@@ -7,9 +7,11 @@
 let
   cfg = config.programs.rstudio;
   r-pkgs = with pkgs.rPackages; [
-    knitr
+    dplyr
+    ggplot2
     htmltools
     jsonlite
+    knitr
     magrittr
     mime
     rmarkdown
