@@ -29,7 +29,6 @@ let
     ag = true;
     dev = "ROCm0,CUDA0";
     sm = "tensor";
-    ts = "2.8,1";
     jinja = true;
     ngl = 999;
     np = 4;
@@ -154,16 +153,19 @@ let
   models-preset = {
     "Qwen/Qwen3.8-27B" = qwen-27b-params // {
       m = "${qwen-27b}/Qwen3.8-27B-UD-Q6_K.gguf";
-      c = 169216;
+      c = 163840;
       ctk = "f16";
       ctv = "f16";
+      ts = "2.8,1";
       no-mmproj-offload = true;
     };
     "Qwen/Qwen3.8-27B-Vision" = qwen-27b-params // {
       m = "${qwen-27b}/Qwen3.8-27B-UD-Q6_K.gguf";
-      c = 131072;
+      c = 139264;
       ctk = "f16";
       ctv = "f16";
+      ts = "2.3,1";
+      mmdev = "ROCm0";
     };
     "Qwen/Qwen3.8-Flash-Next" = qwen-flash-next-params // {
       m = "${qwen-flash-next}/UD-IQ3_XXS/Qwen3.8-Flash-Next-UD-IQ3_XXS-00001-of-00004.gguf";
@@ -206,20 +208,20 @@ let
     # pruning), so all 48 layers and every expert fit in the 36 GiB of VRAM.
     # With no host experts the MoE cache is not needed.
     "Qwen/Qwen3.8-Flash-Next-Coder" = qwen-flash-next-coder-params // {
-      no-mmproj-offload = true;
       c = 163840;
       ctk = "q8_0";
       ctv = "q8_0";
+      no-mmproj-offload = true;
     };
-    # Vision variant with the projector offloaded to CUDA0. The BF16 projector
-    # does not fit next to the whole MTP head, so we evict some of the draft
-    # head's tensors to RAM.
+    # Vision variant offloads the BF16 projector to CUDA0 (~1.6 GiB), leaving
+    # insufficient VRAM for the full MTP head. Offloading draft FFN back to GPU costs
+    # ~28% context for ~10% faster decoding. ts=2.55,1 is the largest possible split.
     "Qwen/Qwen3.8-Flash-Next-Coder-Vision" = qwen-flash-next-coder-params // {
-      mmdev = "CUDA0";
-      c = 131072;
+      c = 147456;
       ctk = "q8_0";
       ctv = "q8_0";
       otd = "blk\\.48\\.ffn_(down|gate)_exps\\.weight=CPU";
+      mmdev = "CUDA0";
     };
   };
 in
