@@ -11,12 +11,12 @@
   stdenv = pkgs.ccacheStdenv;
 }).overrideAttrs
   (oldAttrs: rec {
-    version = "12194";
+    version = "12308";
     src = pkgs.fetchFromGitHub {
       owner = "ggml-org";
       repo = "llama.cpp";
       tag = "b${version}";
-      hash = "sha256-8BAl8bQ99gldqX7RJfYM6VFtWfeeLrvV9SXAk2ECYwA=";
+      hash = "sha256-+N7xzpXb3wI9UyvdFfQVQYIOwLOVMYUx3bNBmJyovyY=";
       leaveDotGit = true;
       postFetch = ''
         git -C "$out" rev-parse --short HEAD > $out/COMMIT
@@ -25,7 +25,7 @@
     };
     # Disable tests for now.
     doCheck = false;
-    npmDepsHash = "sha256-XLtEZsSFdk+2SyfXzBp8HQ2e27PQPpDCn1YjePU1/9w=";
+    npmDepsHash = "sha256-34AKbVBkQZI1+z83Kg4hA43YbxkeDsESKnIt3T5WdL8=";
     # Heterogeneous (CUDA + ROCm) tensor-parallel AllReduce: drive the
     # foreign rank through its own backend API instead of raw CUDA calls.
     # The second patch lets a shared MTP head borrow token_embd/output from the
