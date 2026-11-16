@@ -1,0 +1,103 @@
+diff --git a/ggml/src/ggml-cuda/fattn-common.cuh b/ggml/src/ggml-cuda/fattn-common.cuh
+index 6667ca40080a..e0b73d953af2 100644
+--- a/ggml/src/ggml-cuda/fattn-common.cuh
++++ b/ggml/src/ggml-cuda/fattn-common.cuh
+@@ -1159,7 +1159,9 @@ void launch_fattn(
+         GGML_ASSERT(mask != nullptr);
+         const int32_t n_kv_max_query = ggml_get_op_params_i32(KQV, 4);
+         GGML_ASSERT(n_kv_max_query > 0);
+-        n_kv_max = std::min<int64_t>(K->ne[1], int64_t(ncols1)*n_kv_max_query);
++        // A query group only holds min(n_queries, ncols1) real queries, so the compacted list
++        // is bounded by that and not by the full tile width.
++        n_kv_max = std::min<int64_t>(K->ne[1], int64_t(std::min<int64_t>(Q->ne[1], ncols1))*n_kv_max_query);
+ 
+         const size_t n_lists = size_t(ntiles_x) * mask->ne[3];
+ 
+diff --git a/ggml/src/ggml-cuda/fattn-mma-f16.cuh b/ggml/src/ggml-cuda/fattn-mma-f16.cuh
+index 07a6db842c31..da459561afd3 100644
+--- a/ggml/src/ggml-cuda/fattn-mma-f16.cuh
++++ b/ggml/src/ggml-cuda/fattn-mma-f16.cuh
+@@ -1903,7 +1903,8 @@ static constexpr __host__ __device__ bool ggml_cuda_flash_attn_ext_mma_f16_may_u
+     return (DKQ == 512 && DV == 512 && ncols1 == 1 && ncols2 == 8) ||
+            (DKQ == 576 && DV == 512 && ncols1 == 1 && ncols2 == 16) ||
+            (DKQ == 256 && DV == 256 && ncols1 == 1 && ncols2 == 8) ||
+-           (DKQ == 256 && DV == 256 && ncols1 == 8 && ncols2 == 8);
++           (DKQ == 256 && DV == 256 && ncols1 == 8 && ncols2 == 8) ||
++           (DKQ == 256 && DV == 256 && ncols1 == 4 && ncols2 == 4);
+ }
+ 
+ template<int DKQ, int DV, int ncols1, int ncols2, bool use_logit_softcap, bool V_is_K_view, bool use_sparse>
+diff --git a/ggml/src/ggml-cuda/fattn.cu b/ggml/src/ggml-cuda/fattn.cu
+index cf44ab4f504b..56942e84028c 100644
+--- a/ggml/src/ggml-cuda/fattn.cu
++++ b/ggml/src/ggml-cuda/fattn.cu
+@@ -126,8 +126,10 @@ void ggml_cuda_flash_attn_ext_compact_mask(
+     const dim3 block_dim(256, 1, 1);
+     const ggml_cuda_kernel_launch_params launch_params(blocks_num, block_dim, 0, stream);
+     // the last group of queries is partial only if ncols1 does not divide n_queries
+-    GGML_ASSERT(ncols1 == 1 || ncols1 == 8);
+-    const auto kernel = ncols1 == 1       ? flash_attn_mask_to_sparse_indices<1, false> :
++    GGML_ASSERT(ncols1 == 1 || ncols1 == 4 || ncols1 == 8);
++    const auto kernel = ncols1 == 1 ? flash_attn_mask_to_sparse_indices<1, false> :
++                        ncols1 == 4 ? (n_queries % 4 != 0 ? flash_attn_mask_to_sparse_indices<4, true>  :
++                                                            flash_attn_mask_to_sparse_indices<4, false>) :
+                         n_queries % 8 != 0 ? flash_attn_mask_to_sparse_indices<8, true>  :
+                                              flash_attn_mask_to_sparse_indices<8, false>;
+     ggml_cuda_kernel_launch(kernel, launch_params,
+@@ -158,13 +160,19 @@ bool ggml_cuda_flash_attn_ext_mma_f16_shall_use_sparse(const int cc, const ggml_
+ 
+     const int32_t n_kv_max = ggml_get_op_params_i32(dst, 4);
+ 
++    // the (4, 4) tile is sparse-capable only on RDNA3/4. There the gather has to beat the dense tile
++    // by the same margin as on NVIDIA: it reads the union of its queries, the dense tile reads them all.
++    const bool rdna_tile = ncols1 == 4 && ncols2 == 4 && amd_wmma_available(cc);
++
+     // the dense kernel handles up to 64/ncols2 queries per K/V pass, the single-query gather has to beat that
+     const int64_t n_gather = (ncols1 == 1 ? std::min<int64_t>(Q->ne[1], 64/ncols2) : ncols1) * (int64_t) n_kv_max;
+ 
+-    return ((GGML_CUDA_CC_IS_NVIDIA(cc) && turing_mma_available(cc)) || amd_mfma_available(cc)) && dst->src[5] == nullptr &&
++    return ((GGML_CUDA_CC_IS_NVIDIA(cc) && turing_mma_available(cc)) || amd_mfma_available(cc) || rdna_tile) &&
++        dst->src[5] == nullptr &&
+         mask != nullptr && n_kv_max > 0 && max_bias == 0.0f && logit_softcap == 0.0f &&
+         mask->ne[0] == K->ne[1] && mask->ne[1] >= Q->ne[1] && mask->ne[2] == 1 &&
+-        K->ne[1] >= std::max<int64_t>(4096, GGML_CUDA_CC_IS_NVIDIA(cc) ? 2*n_gather : 2LL*n_kv_max);
++        K->ne[1] >= std::max<int64_t>(4096,
++            (GGML_CUDA_CC_IS_NVIDIA(cc) || rdna_tile) ? 2*n_gather : 2LL*n_kv_max);
+ #endif // !defined(GGML_USE_MUSA)
+ }
+ 
+@@ -358,10 +366,19 @@ static void ggml_cuda_flash_attn_ext_mma_f16(ggml_backend_cuda_context & ctx, gg
+                 ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<192, 128,  8>(ctx, dst);
+             }
+         } break;
+-        case 256:
++        case 256: {
+             GGML_ASSERT(V->ne[0] == 256);
+-            ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<256, 256>(ctx, dst);
++            // RDNA: the sparse gather only exists for the (4, 4) tile, so pick ncols2
++            // directly instead of letting switch_ncols2 derive it from the GQA ratio.
++            const int gqa_ratio = Q->ne[2] / K->ne[2];
++            if (amd_wmma_available(cc) && gqa_ratio % 4 == 0 &&
++                    ggml_cuda_flash_attn_ext_mma_f16_shall_use_sparse(cc, dst, 4, 4)) {
++                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols1<256, 256, 4>(ctx, dst);
++            } else {
++                ggml_cuda_flash_attn_ext_mma_f16_switch_ncols2<256, 256>(ctx, dst);
++            }
+             break;
++        }
+         case 320:
+             // For Mistral Small 4, go straight to the ncols1 switch (ncols2=32-only build).
+             GGML_ASSERT(V->ne[0] == 256);
+@@ -741,6 +758,12 @@ static best_fattn_kernel ggml_cuda_get_best_fattn_kernel(const int device, const
+         return BEST_FATTN_KERNEL_MMA_F16;
+     }
+ 
++    // On RDNA, likewise for the QSA head dim: without this a single-query decode lands on the VEC kernel.
++    if (amd_wmma_available(cc) && Q->ne[0] == 256 && V->ne[0] == 256 &&
++            ggml_cuda_flash_attn_ext_mma_f16_shall_use_sparse(cc, dst, 4, 4)) {
++        return BEST_FATTN_KERNEL_MMA_F16;
++    }
++
+     // AMD MFMA needs a certain minimum batch size to outscale the tile kernel for large head sizes.
+     if (amd_mfma_available(cc) && Q->ne[0] != 40 && Q->ne[0] != 72) {
+         if ((Q->ne[0] <= 64 && Q->ne[1] * gqa_ratio_eff > 8)) {

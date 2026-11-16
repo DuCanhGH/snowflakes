@@ -1,4 +1,4 @@
 { inputs }:
 final: prev: {
-  rstudio = inputs.nixpkgs-rstudio.legacyPackages.${prev.stdenv.hostPlatform.system}.rstudio;
+  rstudio = inputs.nixpkgs-rstudio-opencode.legacyPackages.${prev.stdenv.hostPlatform.system}.rstudio;
 }

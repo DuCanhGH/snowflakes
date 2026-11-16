@@ -111,7 +111,7 @@ in
   home-manager.users.ducanh = {
     programs.opencode = {
       enable = true;
-      package = inputs.nixpkgs-opencode.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
+      package = inputs.nixpkgs-rstudio-opencode.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
     };
     programs.pi-coding-agent = with llama-models; {
       enable = true;

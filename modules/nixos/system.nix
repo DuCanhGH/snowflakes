@@ -50,7 +50,10 @@
     Defaults    env_keep+=SSH_AUTH_SOCK
   '';
 
-  nixpkgs.config.allowUnfree = true;
+  nixpkgs.config = {
+    allowUnfree = true;
+    cudaCapabilities = [ "12.0" ];
+  };
 
   nixpkgs.overlays = [
     (import ./overlays/homa.nix { })
