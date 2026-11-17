@@ -1,7 +1,7 @@
 {
-  pkgs,
   config,
   lib,
+  pkgs,
   ...
 }:
 (pkgs.llama-cpp.override {
@@ -36,9 +36,9 @@
     # layers run dense over the full KV cache on gfx1100, and decode slows down
     # linearly with context.
     patches = [
-      ./allreduce-hetero.patch
-      ./mtp-shared-embd.patch
-      ./rdna-sparse-fa.patch
+      ./patches/allreduce-hetero.patch
+      ./patches/mtp-shared-embd.patch
+      ./patches/rdna-sparse-fa.patch
     ];
     env = {
       CCACHE_COMPRESS = 1;

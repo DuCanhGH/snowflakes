@@ -1,7 +1,7 @@
-{ config, pkgs, ... }:
+{ config, lib, pkgs, ... }:
 {
   boot = {
-    kernelPackages = pkgs.linuxPackages_latest;
+    kernelPackages = lib.mkDefault pkgs.linuxPackages_latest;
     plymouth.enable = true;
     # Enable "Silent boot"
     consoleLogLevel = 3;
@@ -26,7 +26,7 @@
   hardware.nvidia = {
     modesetting.enable = true;
     open = true;
-    branch = "production";
+    branch = lib.mkDefault "production";
     nvidiaSettings = true;
   };
 }

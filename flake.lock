@@ -266,7 +266,7 @@
         "type": "github"
       }
     },
-    "nixpkgs-rstudio-opencode": {
+    "nixpkgs-copors": {
       "locked": {
         "lastModified": 1794750194,
         "narHash": "sha256-c6ZxSsG1c2luSrbESFfp9Jq2pSVhGst2to4aIzt2Nes=",
@@ -410,7 +410,7 @@
         "lanzaboote": "lanzaboote",
         "nix-darwin": "nix-darwin",
         "nixpkgs": "nixpkgs",
-        "nixpkgs-rstudio-opencode": "nixpkgs-rstudio-opencode",
+        "nixpkgs-copors": "nixpkgs-copors",
         "nvf": "nvf",
         "pi-extensions": "pi-extensions",
         "plasma-manager": "plasma-manager",

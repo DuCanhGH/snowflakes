@@ -1,7 +1,7 @@
 {
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixpkgs-rstudio-opencode.url = "github:NixOS/nixpkgs/1a08097fc1ed85575db39763b2c4a5d8970a37ba";
+    nixpkgs-copors.url = "github:NixOS/nixpkgs/1a08097fc1ed85575db39763b2c4a5d8970a37ba";
     # The `follows` keyword in inputs is used for inheritance.
     # Here, `inputs.nixpkgs` of is kept consistent with the
     # `inputs.nixpkgs` of the current flake,

@@ -3,9 +3,9 @@
 # https://search.nixos.org/options and in the NixOS manual (`nixos-help`).
 {
   inputs,
-  pkgs,
   config,
   lib,
+  pkgs,
   ...
 }:
 let
@@ -29,6 +29,7 @@ in
       enable = true;
       pkiBundle = "/var/lib/sbctl";
     };
+    kernelPackages = pkgs.linuxPackages_testing;
     # We keep ~20 GiB of Qwen3.8 Flash Next's MoE experts in anonymous RAM.
     # Swapping them causes a significant drop in performance; setting
     # swappiness low makes the kernel prefer dropping the lazily-read
@@ -111,7 +112,8 @@ in
   home-manager.users.ducanh = {
     programs.opencode = {
       enable = true;
-      package = inputs.nixpkgs-rstudio-opencode.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
+      package =
+        inputs.nixpkgs-copors.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
     };
     programs.pi-coding-agent = with llama-models; {
       enable = true;
@@ -142,8 +144,21 @@ in
 
   hardware.amdgpu.overdrive.enable = true;
 
-  hardware.nvidia.prime = {
-    nvidiaBusId = "PCI:1@0:0:0";
-    amdgpuBusId = "PCI:13@0:0:0";
+  hardware.nvidia = {
+    package = config.boot.kernelPackages.nvidiaPackages.mkDriver {
+      version = "615.78.08";
+      sha256_64bit = "sha256-Pj9t3cLudnoIGFMAr3vjyyhuznZpjS3eNSRZl4LQf/4=";
+      sha256_aarch64 = "sha256-UHYBE1AYHoGgMfD9AS/jX+S+N8eCDWUft6qolK9Eejc=";
+      openSha256 = "sha256-HBINiOjL0ZJLIAJeNIBYHBnwgUXtNwPPtnFpAI1YwF4=";
+      settingsSha256 = "sha256-inDRpG02sdDgHmlqgu/DsgK8OFdOt1fZIYyXdhlGC/c=";
+      persistencedSha256 = "sha256-RzeR6Ldct6MUxjnXRyThdh5Y3jjMehTVg85MtwuWNX4=";
+      patchesOpen = [
+        ./patches/nvidia-open-linux-7.4.patch
+      ];
+    };
+    prime = {
+      nvidiaBusId = "PCI:1@0:0:0";
+      amdgpuBusId = "PCI:13@0:0:0";
+    };
   };
 }

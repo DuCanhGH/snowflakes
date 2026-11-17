@@ -1,0 +1,89 @@
+diff --git a/kernel-open/conftest.sh b/kernel-open/conftest.sh
+index 3996afc0..bcb55d83 100755
+--- a/kernel-open/conftest.sh
++++ b/kernel-open/conftest.sh
+@@ -4554,7 +4554,11 @@ compile_test() {
+             # in v6.11.
+             #
+             CODE="
++            #if defined(NV_DRM_CLIENTS_DRM_FBDEV_HELPER_H_PRESENT)
++            #include <drm/clients/drm_fbdev_helper.h>
++            #else
+             #include <drm/drm_fb_helper.h>
++            #endif
+             #if defined(NV_DRM_DRM_FBDEV_GENERIC_H_PRESENT)
+             #include <drm/drm_fbdev_generic.h>
+             #endif
+@@ -4574,7 +4578,11 @@ compile_test() {
+             # 1000634477d8 ("drm/fbdev-ttm:Convert to client-setup") in v6.13.
+             #
+             CODE="
++            #if defined(NV_DRM_CLIENTS_DRM_FBDEV_HELPER_H_PRESENT)
++            #include <drm/clients/drm_fbdev_helper.h>
++            #else
+             #include <drm/drm_fb_helper.h>
++            #endif
+             #if defined(NV_DRM_DRM_FBDEV_TTM_H_PRESENT)
+             #include <drm/drm_fbdev_ttm.h>
+             #endif
+@@ -4596,7 +4604,11 @@ compile_test() {
+             # in linux-next b86711c6d6e2.
+             #
+             CODE="
++            #if defined(NV_DRM_CLIENTS_DRM_FBDEV_HELPER_H_PRESENT)
++            #include <drm/clients/drm_fbdev_helper.h>
++            #else
+             #include <drm/drm_fb_helper.h>
++            #endif
+             #if defined(NV_DRM_DRM_CLIENT_SETUP_H_PRESENT)
+             #include <drm/drm_client_setup.h>
+             #elif defined(NV_DRM_CLIENTS_DRM_CLIENT_SETUP_H_PRESENT)
+diff --git a/kernel-open/header-presence-tests.mk b/kernel-open/header-presence-tests.mk
+index a1a0e632..546336df 100644
+--- a/kernel-open/header-presence-tests.mk
++++ b/kernel-open/header-presence-tests.mk
+@@ -14,6 +14,7 @@ NV_HEADER_PRESENCE_TESTS = \
+   drm/drm_client_setup.h \
+   drm/drm_probe_helper.h \
+   drm/clients/drm_client_setup.h \
++  drm/clients/drm_fbdev_helper.h \
+   dt-bindings/interconnect/tegra_icc_id.h \
+   generated/autoconf.h \
+   generated/compile.h \
+diff --git a/kernel-open/nvidia-drm/nvidia-drm-drv.c b/kernel-open/nvidia-drm/nvidia-drm-drv.c
+index de784e28..486731ea 100644
+--- a/kernel-open/nvidia-drm/nvidia-drm-drv.c
++++ b/kernel-open/nvidia-drm/nvidia-drm-drv.c
+@@ -64,8 +64,12 @@
+ #endif
+ 
+ #if defined(NV_DRM_FBDEV_AVAILABLE)
++#if defined(NV_DRM_CLIENTS_DRM_FBDEV_HELPER_H_PRESENT)
++#include <drm/clients/drm_fbdev_helper.h>
++#else
+ #include <drm/drm_fb_helper.h>
+ #endif
++#endif
+ 
+ #if defined(NV_DRM_DRM_CLIENT_SETUP_H_PRESENT)
+ #include <drm/drm_client_setup.h>
+diff --git a/kernel-open/nvidia-uvm/uvm_hmm.c b/kernel-open/nvidia-uvm/uvm_hmm.c
+index 6f38ef46..8a65275a 100644
+--- a/kernel-open/nvidia-uvm/uvm_hmm.c
++++ b/kernel-open/nvidia-uvm/uvm_hmm.c
+@@ -4040,9 +4040,13 @@ bool uvm_hmm_must_use_sysmem(uvm_va_block_t *va_block,
+     // TODO: Bug 3660968: add support for file-backed migrations.
+     // TODO: Bug 3368756: add support for transparent huge page migrations.
+     return !vma_is_anonymous(vma) ||
+-           (vma->vm_flags & VM_SPECIAL) ||
++           vma_flags_test_any(&vma->flags,
++                              VMA_IO_BIT,
++                              VMA_DONTEXPAND_BIT,
++                              VMA_PFNMAP_BIT,
++                              VMA_MIXEDMAP_BIT) ||
+            vma_is_dax(vma) ||
+-           is_vm_hugetlb_page(vma);
++           vma_is_hugetlb(vma);
+ }
+ 
+ static NV_STATUS hmm_ats_pte_snapshot_locked(uvm_va_block_t *va_block,
