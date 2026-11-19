@@ -112,8 +112,7 @@ in
   home-manager.users.ducanh = {
     programs.opencode = {
       enable = true;
-      package =
-        inputs.nixpkgs-copors.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
+      package = inputs.nixpkgs-copors.legacyPackages.${pkgs.stdenv.hostPlatform.system}.opencode;
     };
     programs.pi-coding-agent = with llama-models; {
       enable = true;
@@ -146,15 +145,12 @@ in
 
   hardware.nvidia = {
     package = config.boot.kernelPackages.nvidiaPackages.mkDriver {
-      version = "615.78.08";
-      sha256_64bit = "sha256-Pj9t3cLudnoIGFMAr3vjyyhuznZpjS3eNSRZl4LQf/4=";
-      sha256_aarch64 = "sha256-UHYBE1AYHoGgMfD9AS/jX+S+N8eCDWUft6qolK9Eejc=";
-      openSha256 = "sha256-HBINiOjL0ZJLIAJeNIBYHBnwgUXtNwPPtnFpAI1YwF4=";
-      settingsSha256 = "sha256-inDRpG02sdDgHmlqgu/DsgK8OFdOt1fZIYyXdhlGC/c=";
-      persistencedSha256 = "sha256-RzeR6Ldct6MUxjnXRyThdh5Y3jjMehTVg85MtwuWNX4=";
-      patchesOpen = [
-        ./patches/nvidia-open-linux-7.4.patch
-      ];
+      version = "620.73.04";
+      sha256_64bit = "sha256-tfLi1dqENbMlOTBAFbib9+si/grsjNaQW3puip+bjxs=";
+      sha256_aarch64 = "sha256-45QZFS3Hs9hN4tKRrfmripADVpZQqksB7pAEZaS+XkA=";
+      openSha256 = "sha256-+GPU2bXC/QWZTt0eH3dTvI0bMAta1GCdU2WFI4E4LWE=";
+      settingsSha256 = "sha256-Wrv0F7Eo9X/0Xv5DclI9aIe3FcRtbu9okQJuWBjL8es=";
+      persistencedSha256 = "sha256-QOndl1q7veD5aB6AfEe0/K2QHR8+ftLsei/aQrUCN3Q=";
     };
     prime = {
       nvidiaBusId = "PCI:1@0:0:0";
