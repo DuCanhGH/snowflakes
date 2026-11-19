@@ -362,11 +362,11 @@
     "plymouth-vista": {
       "flake": false,
       "locked": {
-        "lastModified": 1793830973,
-        "narHash": "sha256-V/OeyLHjZRyS+WmyLWofeLWoFwTPsi6VMILUkgM4rYw=",
+        "lastModified": 1795064353,
+        "narHash": "sha256-lVCr/jwjFWI4Eany5D1n7SBbSAWXoY4yly9iMEJfy3k=",
         "ref": "refs/heads/main",
-        "rev": "98c7f609ac7b6986ac092fab37b6609243398e22",
-        "revCount": 113,
+        "rev": "93ee229bed485f111547920c8970c5d02a972be5",
+        "revCount": 114,
         "type": "git",
         "url": "ssh://git@github.com/rustussy/plymouth-vista"
       },
